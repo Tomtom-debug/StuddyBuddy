@@ -99,6 +99,100 @@ Then open `http://localhost:5173` in your browser!
 - **Dev server**: port 5173, proxies `/api` calls to Flask on port 5001
 - **Production**: React is built into `frontend/dist` and served by Flask
 
+## API Contract
+
+The frontend should use relative API URLs such as `/api/search`.
+
+- **Local development**:
+  - Frontend runs on `http://localhost:5173`
+  - Flask runs on `http://localhost:5001`
+  - Vite automatically proxies `/api/...` requests to Flask using `frontend/vite.config.ts`
+- **Deployment**:
+  - The frontend and backend are served from the same deployed app
+  - The frontend should still call relative URLs like `/api/search`
+
+### Search Endpoint
+
+- **Method**: `POST`
+- **Path**: `/api/search`
+- **Purpose**: Retrieve similar practice problems for a user query
+
+Example request body:
+
+```json
+{
+  "subject": "math",
+  "query": "parallelogram with tangent circle and diagonal",
+  "top_k": 5
+}
+```
+
+Request fields:
+
+- `subject`: string, required
+  - supported values for now: `"math"`
+  - `"cs"` can be sent, but CS retrieval is not implemented yet
+- `query`: string, required
+  - the user’s natural-language search or pasted problem statement
+- `top_k`: integer, optional
+  - number of results to return
+  - default is `5`
+
+Example success response:
+
+```json
+{
+  "subject": "math",
+  "query": "parallelogram with tangent circle and diagonal",
+  "query_combined_text": "parallelogram tangent circle diagonal",
+  "results": [
+    {
+      "problem_id": 2,
+      "problem_raw": "Let $ABCD$ be a parallelogram with $\\angle BAD < 90^\\circ.$ A circle tangent to sides $\\overline{DA},$ $\\overline{AB},$ and $\\overline{BC}$ intersects diagonal $\\overline{AC}$ at points $P$ and $Q$ with $AP < AQ,$ as shown. Suppose that $AP=3,$ $PQ=9,$ and $QC=16.$ Then the area of $ABCD$ can be expressed in the form $m\\sqrt{n},$ where $m$ and $n$ are positive integers, and $n$ is not divisible by the square of any prime. Find $m+n.$",
+      "answer": "150",
+      "similarity_score": 0.81
+    }
+  ]
+}
+```
+
+Response fields:
+
+- `subject`: dataset used for retrieval
+- `query`: original user query
+- `query_combined_text`: cleaned query text used internally for TF-IDF matching
+- `results`: ranked list of matches
+- `results[].problem_id`: integer dataset id
+- `results[].problem_raw`: original problem text, including LaTeX
+- `results[].answer`: dataset answer
+- `results[].similarity_score`: cosine similarity score
+
+Example error response:
+
+```json
+{
+  "error": "Missing 'query' field."
+}
+```
+
+### Frontend Notes
+
+- Render `problem_raw` as LaTeX-aware text on the frontend
+- Do not construct backend URLs manually with `http://localhost:5001` in frontend code
+- Use relative fetch calls such as:
+
+```ts
+fetch('/api/search', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    subject: 'math',
+    query: userQuery,
+    top_k: 5,
+  }),
+})
+```
+
 ## Deploying on the server
 
 For the initial deployment, only one member of your team needs to follow the steps below.
