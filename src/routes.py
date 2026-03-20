@@ -1,5 +1,5 @@
 """
-Routes: React app serving and episode search API.
+Routes: React app serving and StudyBuddy search API.
 
 To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
@@ -18,7 +18,7 @@ USE_LLM = False
 
 def json_search(query):
     if not query or not query.strip():
-        query = "Kardashian"
+        query = "study"
     results = db.session.query(Episode, Review).join(
         Review, Episode.id == Review.id
     ).filter(

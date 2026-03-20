@@ -6,12 +6,21 @@ type MathRendererProps = {
   text: string
 }
 
+function normalizeLatex(input: string): string {
+  return input
+    .replace(/\\begin\{align\*\}/g, '$$\\begin{aligned}')
+    .replace(/\\end\{align\*\}/g, '\\end{aligned}$$')
+    .replace(/\\begin\{align\}/g, '$$\\begin{aligned}')
+    .replace(/\\end\{align\}/g, '\\end{aligned}$$')
+}
+
 /**
  * Renders LaTeX found in a plain-text string using KaTeX's auto-render.
  * Backend returns strings containing delimiters like `$...$` and `$$...$$`.
  */
 export default function MathRenderer({ text }: MathRendererProps): JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
+  const normalizedText = normalizeLatex(text)
 
   useEffect(() => {
     if (!ref.current) return
@@ -35,8 +44,7 @@ export default function MathRenderer({ text }: MathRendererProps): JSX.Element {
 
   return (
     <div ref={ref} className="latex-text">
-      {text}
+      {normalizedText}
     </div>
   )
 }
-

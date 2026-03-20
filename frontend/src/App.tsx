@@ -11,6 +11,7 @@ function App(): JSX.Element {
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [subject, setSubject] = useState<Subject>('math')
   const [results, setResults] = useState<SearchResult[]>([])
+  const [revealedAnswers, setRevealedAnswers] = useState<Set<number>>(new Set())
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
@@ -27,6 +28,7 @@ function App(): JSX.Element {
     setLoading(true)
     setError(null)
     setMessage(null)
+    setRevealedAnswers(new Set())
 
     try {
       const response = await fetch('/api/search', {
@@ -75,6 +77,7 @@ function App(): JSX.Element {
 
   const handleSubjectChange = (next: Subject): void => {
     setSubject(next)
+    setRevealedAnswers(new Set())
     const trimmed = searchTerm.trim()
     if (trimmed === '') {
       setResults([])
@@ -104,6 +107,25 @@ function App(): JSX.Element {
   const asStringArray = (value: unknown): string[] => {
     if (!Array.isArray(value)) return []
     return value.filter(v => typeof v === 'string') as string[]
+  }
+
+  const normalizeExternalUrl = (value?: string): string | undefined => {
+    if (!value) return undefined
+    if (value.startsWith('http://') || value.startsWith('https://')) return value
+    if (value.startsWith('/')) return `https://leetcode.com${value}`
+    return value
+  }
+
+  const toggleAnswer = (problemId: number): void => {
+    setRevealedAnswers(prev => {
+      const next = new Set(prev)
+      if (next.has(problemId)) {
+        next.delete(problemId)
+      } else {
+        next.add(problemId)
+      }
+      return next
+    })
   }
 
   if (useLlm === null) return <></>
@@ -174,6 +196,8 @@ function App(): JSX.Element {
             const acc = similarityAccent(problem.similarity_score)
 
             if (subject === 'math' && 'problem_raw' in problem) {
+              const answerRevealed = revealedAnswers.has(problem.problem_id)
+
               return (
                 <div
                   key={problem.problem_id}
@@ -198,7 +222,18 @@ function App(): JSX.Element {
 
                   <div className="problem-section">
                     <div className="problem-label">Answer</div>
-                    <MathRenderer text={problem.answer} />
+                    <button
+                      type="button"
+                      className="answer-toggle"
+                      onClick={() => toggleAnswer(problem.problem_id)}
+                    >
+                      {answerRevealed ? 'Hide answer' : 'Reveal answer'}
+                    </button>
+                    {answerRevealed && (
+                      <div className="answer-content">
+                        <MathRenderer text={problem.answer} />
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -216,6 +251,8 @@ function App(): JSX.Element {
                   ? `${(cs.acceptance_rate * 100).toFixed(1)}%`
                   : `${cs.acceptance_rate.toFixed(1)}%`
                 : String(cs.acceptance_rate)
+              const problemUrl = normalizeExternalUrl(cs.url)
+              const solutionUrl = normalizeExternalUrl(cs.solution_link)
 
               return (
                 <div
@@ -252,13 +289,13 @@ function App(): JSX.Element {
                   </div>
 
                   <div className="cs-links">
-                    {cs.url && (
-                      <a className="cs-link" href={cs.url} target="_blank" rel="noreferrer">
+                    {problemUrl && (
+                      <a className="cs-link" href={problemUrl} target="_blank" rel="noreferrer">
                         View problem
                       </a>
                     )}
-                    {cs.solution_link && (
-                      <a className="cs-link" href={cs.solution_link} target="_blank" rel="noreferrer">
+                    {solutionUrl && (
+                      <a className="cs-link" href={solutionUrl} target="_blank" rel="noreferrer">
                         Solution link
                       </a>
                     )}
