@@ -71,6 +71,20 @@ def resolve_subject(subject):
     raise ValueError("subject must be 'math' or 'cs'")
 
 
+def build_leetcode_solution_url(record):
+    """Returns a frontend-ready LeetCode solutions URL for a problem record."""
+    problem_url = (record.get("url") or "").rstrip("/")
+    if problem_url:
+        return f"{problem_url}/solutions/"
+
+    raw_solution_link = record.get("solution_link") or ""
+    slug = raw_solution_link.replace("/articles/", "").strip("/")
+    if slug:
+        return f"https://leetcode.com/problems/{slug}/solutions/"
+
+    return ""
+
+
 def format_search_result(subject, record, score):
     """Shapes one retrieval result according to the selected subject."""
     if subject == "math":
@@ -89,7 +103,7 @@ def format_search_result(subject, record, score):
             "difficulty": record["difficulty"],
             "acceptance_rate": record["acceptance_rate"],
             "url": record["url"],
-            "solution_link": record["solution_link"],
+            "solution_link": build_leetcode_solution_url(record),
             "companies": record["companies"],
             "related_topics": record["related_topics"],
             "similar_questions": record["similar_questions"],
