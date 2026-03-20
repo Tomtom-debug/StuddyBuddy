@@ -147,7 +147,9 @@ function App(): JSX.Element {
           </div>
 
           <div className="hint-text">
-            Tip: paste the full statement (with LaTeX) or a short concept like “circle tangency geometry”.
+            {subject === 'math'
+              ? 'Tip: paste the full statement (with LaTeX) or a short concept like “circle tangency geometry”.'
+              : 'Tip: paste a CS problem statement (or keywords) like “shortest path in a graph with constraints” or “DP on grids”.'}
           </div>
         </div>
 
