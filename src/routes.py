@@ -45,7 +45,7 @@ def get_retrieval_artifacts(app, subject):
         vectorizer_key = "LEETCODE_VECTORIZER"
         matrix_key = "LEETCODE_TFIDF_MATRIX"
     else:
-        raise ValueError("subject must be 'math', 'cs', or 'leetcode'")
+        raise ValueError("subject must be 'math' or 'cs'")
 
     records = app.config.get(records_key)
     vectorizer = app.config.get(vectorizer_key)
@@ -58,6 +58,17 @@ def get_retrieval_artifacts(app, subject):
         )
 
     return records, vectorizer, matrix
+
+
+def resolve_subject(subject):
+    """Maps subject aliases onto a concrete retrieval dataset."""
+    if subject == "leetcode":
+        raise ValueError("subject 'leetcode' is not supported. Use 'cs'.")
+    if subject == "cs":
+        return "leetcode"
+    if subject == "math":
+        return "math"
+    raise ValueError("subject must be 'math' or 'cs'")
 
 
 def format_search_result(subject, record, score):
@@ -85,19 +96,13 @@ def format_search_result(subject, record, score):
             "similarity_score": score,
         }
 
-    raise ValueError("subject must be 'math', 'cs', or 'leetcode'")
+    raise ValueError("subject must be 'math' or 'cs'")
 
 
 def search_problems(app, subject, query, top_k=5):
-    if subject == "cs":
-        return {
-            "subject": subject,
-            "query": query,
-            "results": [],
-            "message": "CS retrieval not implemented yet."
-        }
+    resolved_subject = resolve_subject(subject)
 
-    records, vectorizer, matrix = get_retrieval_artifacts(app, subject)
+    records, vectorizer, matrix = get_retrieval_artifacts(app, resolved_subject)
 
     query_text = build_combined_text(query)
     query_vector = vectorizer.transform([query_text])
@@ -106,7 +111,7 @@ def search_problems(app, subject, query, top_k=5):
     results = []
     for document_index, score in ranked_matches:
         record = records[document_index]
-        results.append(format_search_result(subject, record, score))
+        results.append(format_search_result(resolved_subject, record, score))
 
     return {
         "subject": subject,
