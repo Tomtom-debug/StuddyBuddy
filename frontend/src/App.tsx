@@ -109,6 +109,13 @@ function App(): JSX.Element {
     return value.filter(v => typeof v === 'string') as string[]
   }
 
+  const normalizeExternalUrl = (value?: string): string | undefined => {
+    if (!value) return undefined
+    if (value.startsWith('http://') || value.startsWith('https://')) return value
+    if (value.startsWith('/')) return `https://leetcode.com${value}`
+    return value
+  }
+
   const toggleAnswer = (problemId: number): void => {
     setRevealedAnswers(prev => {
       const next = new Set(prev)
@@ -244,6 +251,8 @@ function App(): JSX.Element {
                   ? `${(cs.acceptance_rate * 100).toFixed(1)}%`
                   : `${cs.acceptance_rate.toFixed(1)}%`
                 : String(cs.acceptance_rate)
+              const problemUrl = normalizeExternalUrl(cs.url)
+              const solutionUrl = normalizeExternalUrl(cs.solution_link)
 
               return (
                 <div
@@ -280,13 +289,13 @@ function App(): JSX.Element {
                   </div>
 
                   <div className="cs-links">
-                    {cs.url && (
-                      <a className="cs-link" href={cs.url} target="_blank" rel="noreferrer">
+                    {problemUrl && (
+                      <a className="cs-link" href={problemUrl} target="_blank" rel="noreferrer">
                         View problem
                       </a>
                     )}
-                    {cs.solution_link && (
-                      <a className="cs-link" href={cs.solution_link} target="_blank" rel="noreferrer">
+                    {solutionUrl && (
+                      <a className="cs-link" href={solutionUrl} target="_blank" rel="noreferrer">
                         Solution link
                       </a>
                     )}
