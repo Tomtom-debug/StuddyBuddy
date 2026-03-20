@@ -19,7 +19,7 @@ from models import db, Episode, Review
 from routes import register_routes
 
 
-#processed directory for math records
+# Processed directory for retrieval artifacts.
 processed_directory = os.path.join(project_root, "processed")
 
 # Serve React build files from <project_root>/frontend/dist
@@ -81,9 +81,24 @@ def load_math_artifacts():
         print("Math retrieval artifacts not found. Run preprocessing and TF-IDF indexing first.")
 
 
+def load_leetcode_artifacts():
+    try:
+        with open(os.path.join(processed_directory, "leetcode_problems.json"), "r", encoding="utf-8") as file:
+            app.config["LEETCODE_RECORDS"] = json.load(file)
+
+        with open(os.path.join(processed_directory, "leetcode_vectorizer.pkl"), "rb") as file:
+            app.config["LEETCODE_VECTORIZER"] = pickle.load(file)
+
+        with open(os.path.join(processed_directory, "leetcode_tfidf_matrix.pkl"), "rb") as file:
+            app.config["LEETCODE_TFIDF_MATRIX"] = pickle.load(file)
+    except FileNotFoundError:
+        print("LeetCode retrieval artifacts not found. Run preprocessing and TF-IDF indexing first.")
+
+
 
 #init_db()
 load_math_artifacts()
+load_leetcode_artifacts()
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=5001)
