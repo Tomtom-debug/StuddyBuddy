@@ -127,11 +127,11 @@ Example request body:
 }
 ```
 
-Example LeetCode request body:
+Example CS request body:
 
 ```json
 {
-  "subject": "leetcode",
+  "subject": "cs",
   "query": "two pointers array",
   "top_k": 5
 }
@@ -140,8 +140,8 @@ Example LeetCode request body:
 Request fields:
 
 - `subject`: string, required
-  - supported values for now: `"math"`, `"leetcode"`
-  - `"cs"` can be sent, but CS retrieval is not implemented yet
+  - supported values: `"math"` and `"cs"`
+  - `"cs"` uses the LeetCode dataset internally
 - `query`: string, required
   - the user’s natural-language search or pasted problem statement
 - `top_k`: integer, optional
@@ -179,7 +179,7 @@ For `subject = "math"`:
 - `results[].problem_raw`: original problem text, including LaTeX
 - `results[].answer`: dataset answer
 
-For `subject = "leetcode"`:
+For `subject = "cs"`:
 - `results[].problem_id`: LeetCode problem id
 - `results[].title`: problem title
 - `results[].description`: problem statement
@@ -199,12 +199,12 @@ Example error response:
 }
 ```
 
-LeetCode curl example:
+CS curl example:
 
 ```bash
 curl -X POST http://127.0.0.1:5001/api/search \
   -H "Content-Type: application/json" \
-  -d '{"subject":"leetcode","query":"two pointers array","top_k":5}'
+  -d '{"subject":"cs","query":"two pointers array","top_k":5}'
 ```
 
 ### Frontend Notes
