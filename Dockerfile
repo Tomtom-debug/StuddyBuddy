@@ -28,6 +28,8 @@ WORKDIR $CONTAINER_HOME
 
 COPY --from=python-deps /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
 COPY src/ $CONTAINER_HOME/src/
+COPY lib/ $CONTAINER_HOME/lib/
+COPY processed/ $CONTAINER_HOME/processed/
 COPY --from=frontend-build /app/frontend/dist $CONTAINER_HOME/frontend/dist
 
 CMD ["python", "-m", "gunicorn", "--chdir", "src", "app:app", "--bind", "0.0.0.0:5000", "--log-level", "debug"]
