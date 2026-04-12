@@ -75,10 +75,13 @@ def load_math_artifacts():
         with open(os.path.join(processed_directory, "math_vectorizer.pkl"), "rb") as file:
             app.config["MATH_VECTORIZER"] = pickle.load(file)
 
-        with open(os.path.join(processed_directory, "math_tfidf_matrix.pkl"), "rb") as file:
-            app.config["MATH_TFIDF_MATRIX"] = pickle.load(file)
+        with open(os.path.join(processed_directory, "math_docs_compressed.pkl"), "rb") as file:
+            app.config["MATH_DOCS_COMPRESSED"] = pickle.load(file)
+
+        with open(os.path.join(processed_directory, "math_words_compressed.pkl"), "rb") as file:
+            app.config["MATH_WORDS_COMPRESSED"] = pickle.load(file)
     except FileNotFoundError:
-        print("Math retrieval artifacts not found. Run preprocessing and TF-IDF indexing first.")
+        print("Math retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
 
 
 def load_leetcode_artifacts():
@@ -89,10 +92,13 @@ def load_leetcode_artifacts():
         with open(os.path.join(processed_directory, "leetcode_vectorizer.pkl"), "rb") as file:
             app.config["LEETCODE_VECTORIZER"] = pickle.load(file)
 
-        with open(os.path.join(processed_directory, "leetcode_tfidf_matrix.pkl"), "rb") as file:
-            app.config["LEETCODE_TFIDF_MATRIX"] = pickle.load(file)
+        with open(os.path.join(processed_directory, "leetcode_docs_compressed.pkl"), "rb") as file:
+            app.config["LEETCODE_DOCS_COMPRESSED"] = pickle.load(file)
+
+        with open(os.path.join(processed_directory, "leetcode_words_compressed.pkl"), "rb") as file:
+            app.config["LEETCODE_WORDS_COMPRESSED"] = pickle.load(file)
     except FileNotFoundError:
-        print("LeetCode retrieval artifacts not found. Run preprocessing and TF-IDF indexing first.")
+        print("LeetCode retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
 
 
 
