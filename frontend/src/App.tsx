@@ -15,6 +15,7 @@ function App(): JSX.Element {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+  const [belowThreshold, setBelowThreshold] = useState<boolean>(false)
   const latestRequestId = useRef<number>(0)
 
   useEffect(() => {
@@ -28,6 +29,7 @@ function App(): JSX.Element {
     setLoading(true)
     setError(null)
     setMessage(null)
+    setBelowThreshold(false)
     setRevealedAnswers(new Set())
 
     try {
@@ -52,6 +54,7 @@ function App(): JSX.Element {
       }
 
       setResults(Array.isArray(data?.results) ? (data.results as SearchResult[]) : [])
+      setBelowThreshold(data?.below_threshold === true)
       if (typeof data?.message === 'string' && data.message.trim() !== '') {
         setMessage(data.message)
       }
@@ -70,6 +73,7 @@ function App(): JSX.Element {
       setResults([])
       setMessage(null)
       setError(null)
+      setBelowThreshold(false)
       return
     }
     void runSearch(trimmed, subject)
@@ -83,6 +87,7 @@ function App(): JSX.Element {
       setResults([])
       setMessage(null)
       setError(null)
+      setBelowThreshold(false)
       return
     }
     void runSearch(trimmed, next)
@@ -182,7 +187,11 @@ function App(): JSX.Element {
           )}
 
           {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
-            <div className="notice">No matching problems found.</div>
+            <div className="notice">
+              {belowThreshold
+                ? "No problems matched your query closely enough. Try rephrasing or using more specific terms."
+                : "No matching problems found."}
+            </div>
           )}
 
           {results.map((problem) => {

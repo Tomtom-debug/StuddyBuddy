@@ -16,6 +16,11 @@ USE_LLM = False
 # USE_LLM = True
 # ─────────────────────────────────────────────────────────────────────────────
 
+SIMILARITY_THRESHOLDS = {
+    "math": 0.5,
+    "leetcode": 0.6,
+}
+
 
 def json_search(query):
     if not query or not query.strip():
@@ -128,8 +133,11 @@ def search_problems(app, subject, query, top_k=5):
     query_vec = normalize(query_tfidf.dot(words_compressed))
     ranked_matches = rank_by_cosine(query_vec, docs_compressed, top_k=top_k)
 
+    threshold = SIMILARITY_THRESHOLDS.get(resolved_subject, 0.5)
     results = []
     for document_index, score in ranked_matches:
+        if score < threshold:
+            continue
         record = records[document_index]
         results.append(format_search_result(resolved_subject, record, score))
 
@@ -138,6 +146,7 @@ def search_problems(app, subject, query, top_k=5):
         "query": query,
         "query_combined_text": query_text,
         "results": results,
+        "below_threshold": len(results) == 0,
     }
 
 
