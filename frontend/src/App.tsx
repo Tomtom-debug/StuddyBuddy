@@ -336,7 +336,7 @@ function App(): JSX.Element {
       </div>
 
       {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat onSearchTerm={handleSearch} />}
+      {useLlm && <Chat subject={subject} />}
     </div>
   )
 }
