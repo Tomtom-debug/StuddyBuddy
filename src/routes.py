@@ -4,6 +4,7 @@ Routes: React app serving and StudyBuddy search API.
 To enable AI chat, set USE_LLM = True below. See llm_routes.py for AI code.
 """
 import os
+import numpy as np
 from flask import send_from_directory, request, jsonify
 from models import db, Episode, Review
 from lib.preprocess import build_combined_text
@@ -42,11 +43,13 @@ def get_retrieval_artifacts(app, subject):
         vectorizer_key = "MATH_VECTORIZER"
         docs_key = "MATH_DOCS_COMPRESSED"
         words_key = "MATH_WORDS_COMPRESSED"
+        labels_key = "MATH_DIM_LABELS"
     elif subject == "leetcode":
         records_key = "LEETCODE_RECORDS"
         vectorizer_key = "LEETCODE_VECTORIZER"
         docs_key = "LEETCODE_DOCS_COMPRESSED"
         words_key = "LEETCODE_WORDS_COMPRESSED"
+        labels_key = "LEETCODE_DIM_LABELS"
     else:
         raise ValueError("subject must be 'math' or 'cs'")
 
@@ -54,6 +57,7 @@ def get_retrieval_artifacts(app, subject):
     vectorizer = app.config.get(vectorizer_key)
     docs_compressed = app.config.get(docs_key)
     words_compressed = app.config.get(words_key)
+    dim_labels = app.config.get(labels_key)
 
     if any(v is None for v in (records, vectorizer, docs_compressed, words_compressed)):
         raise RuntimeError(
@@ -61,7 +65,16 @@ def get_retrieval_artifacts(app, subject):
             "Run preprocessing, TF-IDF indexing, and SVD indexing first."
         )
 
-    return records, vectorizer, docs_compressed, words_compressed
+    return records, vectorizer, docs_compressed, words_compressed, dim_labels
+
+
+def top_dims(vec, dim_labels, top_m=3):
+    """Returns the top_m most activated SVD dimensions for a 1-D vector."""
+    indices = np.argsort(np.abs(vec))[-top_m:][::-1]
+    return [
+        {"dim": int(i), "activation": round(float(vec[i]), 4), "label": dim_labels[i]}
+        for i in indices
+    ]
 
 
 def resolve_subject(subject):
@@ -89,18 +102,21 @@ def build_leetcode_solution_url(record):
     return ""
 
 
-def format_search_result(subject, record, score):
+def format_search_result(subject, record, score, doc_top_dims=None):
     """Shapes one retrieval result according to the selected subject."""
     if subject == "math":
-        return {
+        result = {
             "problem_id": record["problem_id"],
             "problem_raw": record["problem_raw"],
             "answer": record["answer"],
             "similarity_score": score,
         }
+        if doc_top_dims is not None:
+            result["top_dims"] = doc_top_dims
+        return result
 
     if subject == "leetcode":
-        return {
+        result = {
             "problem_id": record["problem_id"],
             "title": record["title"],
             "description": record["description"],
@@ -113,6 +129,9 @@ def format_search_result(subject, record, score):
             "similar_questions": record["similar_questions"],
             "similarity_score": score,
         }
+        if doc_top_dims is not None:
+            result["top_dims"] = doc_top_dims
+        return result
 
     raise ValueError("subject must be 'math' or 'cs'")
 
@@ -120,7 +139,7 @@ def format_search_result(subject, record, score):
 def search_problems(app, subject, query, top_k=5):
     resolved_subject = resolve_subject(subject)
 
-    records, vectorizer, docs_compressed, words_compressed = get_retrieval_artifacts(app, resolved_subject)
+    records, vectorizer, docs_compressed, words_compressed, dim_labels = get_retrieval_artifacts(app, resolved_subject)
 
     query_text = build_combined_text(query)
     # Fold the query into the SVD space: transform via TF-IDF then project via V
@@ -128,17 +147,23 @@ def search_problems(app, subject, query, top_k=5):
     query_vec = normalize(query_tfidf.dot(words_compressed))
     ranked_matches = rank_by_cosine(query_vec, docs_compressed, top_k=top_k)
 
+    query_top_dims = top_dims(query_vec[0], dim_labels) if dim_labels is not None else None
+
     results = []
     for document_index, score in ranked_matches:
         record = records[document_index]
-        results.append(format_search_result(resolved_subject, record, score))
+        doc_top_dims = top_dims(docs_compressed[document_index], dim_labels) if dim_labels is not None else None
+        results.append(format_search_result(resolved_subject, record, score, doc_top_dims))
 
-    return {
+    response = {
         "subject": subject,
         "query": query,
         "query_combined_text": query_text,
         "results": results,
     }
+    if query_top_dims is not None:
+        response["query_top_dims"] = query_top_dims
+    return response
 
 
 

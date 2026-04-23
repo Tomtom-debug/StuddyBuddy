@@ -2,6 +2,7 @@ import json
 import os
 import pickle
 import sys
+import numpy as np
 from dotenv import load_dotenv
 from flask import Flask
 
@@ -67,6 +68,15 @@ def init_db():
             db.session.commit()
             print("Database initialized with episodes and reviews data")
 
+def compute_dim_labels(vectorizer, words_compressed, top_n=8):
+    vocab = vectorizer.get_feature_names_out()
+    labels = []
+    for dim in range(words_compressed.shape[1]):
+        top_indices = np.argsort(np.abs(words_compressed[:, dim]))[-top_n:][::-1]
+        labels.append([vocab[i] for i in top_indices])
+    return labels
+
+
 def load_math_artifacts():
     try:
         with open(os.path.join(processed_directory, "math_problems.json"), "r", encoding="utf-8") as file:
@@ -80,6 +90,10 @@ def load_math_artifacts():
 
         with open(os.path.join(processed_directory, "math_words_compressed.pkl"), "rb") as file:
             app.config["MATH_WORDS_COMPRESSED"] = pickle.load(file)
+
+        app.config["MATH_DIM_LABELS"] = compute_dim_labels(
+            app.config["MATH_VECTORIZER"], app.config["MATH_WORDS_COMPRESSED"]
+        )
     except FileNotFoundError:
         print("Math retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
 
@@ -97,6 +111,10 @@ def load_leetcode_artifacts():
 
         with open(os.path.join(processed_directory, "leetcode_words_compressed.pkl"), "rb") as file:
             app.config["LEETCODE_WORDS_COMPRESSED"] = pickle.load(file)
+
+        app.config["LEETCODE_DIM_LABELS"] = compute_dim_labels(
+            app.config["LEETCODE_VECTORIZER"], app.config["LEETCODE_WORDS_COMPRESSED"]
+        )
     except FileNotFoundError:
         print("LeetCode retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
 
