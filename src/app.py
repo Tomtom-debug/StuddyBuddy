@@ -73,7 +73,7 @@ def compute_dim_labels(vectorizer, words_compressed, top_n=8):
     labels = []
     for dim in range(words_compressed.shape[1]):
         top_indices = np.argsort(np.abs(words_compressed[:, dim]))[-top_n:][::-1]
-        labels.append([vocab[i] for i in top_indices])
+        labels.append(" · ".join(vocab[i] for i in top_indices))
     return labels
 
 

@@ -537,3 +537,136 @@
   font-size: 13px;
   font-weight: 700;
 }
+
+.query-dims-section {
+  margin-bottom: 12px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(240, 253, 244, 0.9);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+}
+
+.query-dims-label {
+  margin-bottom: 12px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #166534;
+  font-family: 'Open Sans', sans-serif;
+}
+
+.query-dims-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.query-dim-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.query-dim-score {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(22, 163, 74, 0.12);
+  border: 1px solid rgba(22, 163, 74, 0.28);
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 900;
+  font-family: 'Open Sans', sans-serif;
+}
+
+.query-dim-words {
+  color: #166534;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: 'Open Sans', sans-serif;
+}
+
+.dim-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dim-tag {
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.08);
+  border: 1px solid rgba(124, 58, 237, 0.20);
+  color: rgba(109, 40, 217, 0.90);
+  font-size: 11px;
+  font-weight: 800;
+  font-family: 'Open Sans', sans-serif;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.result-dims {
+  margin-top: 10px;
+}
+
+.why-matched-section {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(241, 245, 255, 0.8);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.why-matched-title {
+  font-size: 13px;
+  font-weight: 900;
+  color: rgba(15, 23, 42, 0.85);
+  margin-bottom: 10px;
+  font-family: 'Kanit', sans-serif;
+}
+
+.dim-group {
+  margin-bottom: 10px;
+}
+
+.dim-group:last-child {
+  margin-bottom: 0;
+}
+
+.dim-group-label {
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 6px;
+  font-family: 'Open Sans', sans-serif;
+}
+
+.dim-group-label.positive {
+  color: #15803d;
+}
+
+.dim-group-label.negative {
+  color: #b91c1c;
+}
+
+.dim-tag-positive {
+  background: rgba(22, 163, 74, 0.08);
+  border-color: rgba(22, 163, 74, 0.30);
+  color: #15803d;
+}
+
+.dim-tag-negative {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.30);
+  color: #b91c1c;
+}
+
+.dim-score {
+  font-weight: 900;
+  margin-right: 6px;
+  padding-right: 7px;
+  border-right: 1px solid rgba(109, 40, 217, 0.3);
+  color: rgba(109, 40, 217, 1);
+}

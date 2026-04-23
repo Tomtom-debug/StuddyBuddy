@@ -4,7 +4,7 @@ import SearchIcon from './assets/mag.png'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
-import type { SearchResult, Subject } from './types'
+import type { SearchResult, Subject, SvdDim } from './types'
 
 function App(): JSX.Element {
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
@@ -15,6 +15,7 @@ function App(): JSX.Element {
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+  const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
   const latestRequestId = useRef<number>(0)
 
   useEffect(() => {
@@ -29,6 +30,7 @@ function App(): JSX.Element {
     setError(null)
     setMessage(null)
     setRevealedAnswers(new Set())
+    setQueryTopDims([])
 
     try {
       const response = await fetch('/api/search', {
@@ -48,16 +50,19 @@ function App(): JSX.Element {
       if (!response.ok) {
         setError(data?.error || data?.message || `Search failed (${response.status})`)
         setResults([])
+        setQueryTopDims([])
         return
       }
 
       setResults(Array.isArray(data?.results) ? (data.results as SearchResult[]) : [])
+      setQueryTopDims(Array.isArray(data?.query_top_dims) ? (data.query_top_dims as SvdDim[]) : [])
       if (typeof data?.message === 'string' && data.message.trim() !== '') {
         setMessage(data.message)
       }
     } catch {
       setError('Something went wrong. Please try again.')
       setResults([])
+      setQueryTopDims([])
     } finally {
       if (latestRequestId.current === requestId) setLoading(false)
     }
@@ -68,6 +73,7 @@ function App(): JSX.Element {
     const trimmed = value.trim()
     if (trimmed === '') {
       setResults([])
+      setQueryTopDims([])
       setMessage(null)
       setError(null)
       return
@@ -81,6 +87,7 @@ function App(): JSX.Element {
     const trimmed = searchTerm.trim()
     if (trimmed === '') {
       setResults([])
+      setQueryTopDims([])
       setMessage(null)
       setError(null)
       return
@@ -107,6 +114,49 @@ function App(): JSX.Element {
   const asStringArray = (value: unknown): string[] => {
     if (!Array.isArray(value)) return []
     return value.filter(v => typeof v === 'string') as string[]
+  }
+
+  const renderDimSection = (topDims: SvdDim[] | undefined): JSX.Element | null => {
+    if (!topDims || topDims.length === 0) return null
+    const posDims = topDims.filter(d => {
+      const q = queryTopDims.find(q => q.dim === d.dim)
+      return q ? q.activation * d.activation > 0 : d.activation >= 0
+    })
+    const negDims = topDims.filter(d => {
+      const q = queryTopDims.find(q => q.dim === d.dim)
+      return q ? q.activation * d.activation < 0 : d.activation < 0
+    })
+    if (posDims.length === 0 && negDims.length === 0) return null
+    const shortLabel = (label: string) => label.split(' · ').slice(0, 3).join(', ')
+    return (
+      <div className="why-matched-section">
+        <div className="why-matched-title">Why this matched in SVD</div>
+        {posDims.length > 0 && (
+          <div className="dim-group">
+            <div className="dim-group-label positive">Positive dimensions</div>
+            <div className="dim-tags">
+              {posDims.map(d => (
+                <div key={d.dim} className="dim-tag dim-tag-positive" title={`activation ${d.activation.toFixed(3)}`}>
+                  Dim {d.dim}: {shortLabel(d.label)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {negDims.length > 0 && (
+          <div className="dim-group">
+            <div className="dim-group-label negative">Negative dimensions</div>
+            <div className="dim-tags">
+              {negDims.map(d => (
+                <div key={d.dim} className="dim-tag dim-tag-negative" title={`activation ${d.activation.toFixed(3)}`}>
+                  Dim {d.dim}: {shortLabel(d.label)}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
   }
 
   const toggleAnswer = (problemId: number): void => {
@@ -173,6 +223,22 @@ function App(): JSX.Element {
           {error && <div className="notice error">{error}</div>}
           {!error && message && <div className="notice">{message}</div>}
 
+          {!loading && !error && queryTopDims.length > 0 && results.length > 0 && (
+            <div className="query-dims-section">
+              <div className="query-dims-label">Semantic concepts activated by your query</div>
+              <div className="query-dims-list">
+                {queryTopDims.map((d) => (
+                  <div key={d.dim} className="query-dim-row" title={`dim ${d.dim}`}>
+                    <span className="query-dim-score">
+                      {d.activation >= 0 ? '+' : ''}{d.activation.toFixed(3)}
+                    </span>
+                    <span className="query-dim-words">{d.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {loading && (
             <div className="loading-indicator visible" aria-live="polite">
               <span className="loading-dot" />
@@ -207,6 +273,8 @@ function App(): JSX.Element {
                       {Number.isFinite(problem.similarity_score) ? problem.similarity_score.toFixed(2) : '—'}
                     </div>
                   </div>
+
+                  {renderDimSection(problem.top_dims)}
 
                   <div className="problem-section">
                     <div className="problem-label">Problem</div>
@@ -261,6 +329,8 @@ function App(): JSX.Element {
                       {Number.isFinite(cs.similarity_score) ? cs.similarity_score.toFixed(2) : '—'}
                     </div>
                   </div>
+
+                  {renderDimSection(cs.top_dims)}
 
                   <div className="cs-subtitle">LeetCode-style problem</div>
 
