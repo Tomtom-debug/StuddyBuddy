@@ -19,9 +19,10 @@ type Message = UserMessage | AssistantMessage
 
 interface ChatProps {
   subject: Subject
+  context: SearchResult[]
 }
 
-function Chat({ subject }: ChatProps): JSX.Element {
+function Chat({ subject, context }: ChatProps): JSX.Element {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
@@ -44,7 +45,7 @@ function Chat({ subject }: ChatProps): JSX.Element {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, subject }),
+        body: JSON.stringify({ message: text, subject, provided_context: context.length > 0 ? context : undefined }),
       })
 
       if (!response.ok) {
@@ -137,7 +138,8 @@ function Chat({ subject }: ChatProps): JSX.Element {
   }
 
   return (
-    <>
+    <div className="chat-panel">
+      <div className="chat-panel-header">AI Assistant</div>
       <div id="messages">
         {messages.map((msg, i) => {
           if (msg.isUser) {
@@ -152,7 +154,7 @@ function Chat({ subject }: ChatProps): JSX.Element {
             <div key={i} className="message assistant">
               {msg.irQuery && (
                 <div className="chat-ir-pill">
-                  Searched for: <em>{msg.irQuery}</em>
+                  Modified query: <em>{msg.irQuery}</em>
                 </div>
               )}
 
@@ -195,7 +197,7 @@ function Chat({ subject }: ChatProps): JSX.Element {
           <img src={SearchIcon} alt="" />
           <input
             type="text"
-            placeholder="Ask about a concept or problem type…"
+            placeholder="Ask a follow-up question…"
             value={input}
             onChange={e => setInput(e.target.value)}
             disabled={loading}
@@ -204,7 +206,7 @@ function Chat({ subject }: ChatProps): JSX.Element {
           <button type="submit" disabled={loading}>Send</button>
         </form>
       </div>
-    </>
+    </div>
   )
 }
 

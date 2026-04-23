@@ -16,7 +16,36 @@ function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [belowThreshold, setBelowThreshold] = useState<boolean>(false)
+  const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
+  const [synthesisHeight, setSynthesisHeight] = useState<number>(200)
+  const [explainPanel, setExplainPanel] = useState<{
+    problemId: number
+    mode: 'hint' | 'walkthrough'
+    answerText: string
+    loading: boolean
+  } | null>(null)
   const latestRequestId = useRef<number>(0)
+  const latestSynthesisId = useRef<number>(0)
+  const synthesisDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isDragging = useRef<boolean>(false)
+  const dragStartY = useRef<number>(0)
+  const dragStartHeight = useRef<number>(0)
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent): void => {
+      if (!isDragging.current) return
+      const delta = e.clientY - dragStartY.current
+      const next = Math.max(48, Math.min(500, dragStartHeight.current - delta))
+      setSynthesisHeight(next)
+    }
+    const onMouseUp = (): void => { isDragging.current = false }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm(data.use_llm))
@@ -66,6 +95,104 @@ function App(): JSX.Element {
     }
   }
 
+  const runSynthesis = async (value: string, subj: Subject): Promise<void> => {
+    const synthId = latestSynthesisId.current + 1
+    latestSynthesisId.current = synthId
+    setSynthesis({ irQuery: '', answerText: '', loading: true })
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: value, subject: subj }),
+      })
+
+      if (!response.ok || latestSynthesisId.current !== synthId) return
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value: chunk } = await reader.read()
+        if (done || latestSynthesisId.current !== synthId) break
+        buffer += decoder.decode(chunk, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.ir_query !== undefined) {
+              setSynthesis(prev => prev ? { ...prev, irQuery: data.ir_query } : null)
+            }
+            if (data.content !== undefined) {
+              setSynthesis(prev => prev ? { ...prev, loading: false, answerText: prev.answerText + data.content } : null)
+            }
+          } catch { /* ignore malformed lines */ }
+        }
+      }
+      setSynthesis(prev => prev ? { ...prev, loading: false } : null)
+    } catch {
+      setSynthesis(null)
+    }
+  }
+
+  const scheduleSynthesis = (value: string, subj: Subject): void => {
+    if (synthesisDebounce.current) clearTimeout(synthesisDebounce.current)
+    if (!useLlm) return
+    synthesisDebounce.current = setTimeout(() => void runSynthesis(value, subj), 700)
+  }
+
+  const runExplain = async (problemId: number, mode: 'hint' | 'walkthrough'): Promise<void> => {
+    if (explainPanel?.problemId === problemId && explainPanel.mode === mode) {
+      setExplainPanel(null)
+      return
+    }
+    setExplainPanel({ problemId, mode, answerText: '', loading: true })
+
+    try {
+      const response = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ problem_id: problemId, subject, mode }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json()
+        setExplainPanel(prev => prev ? { ...prev, loading: false, answerText: 'Error: ' + (data.error || response.status) } : null)
+        return
+      }
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value: chunk } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(chunk, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6))
+            if (data.content !== undefined) {
+              setExplainPanel(prev => prev ? { ...prev, loading: false, answerText: prev.answerText + data.content } : null)
+            }
+            if (data.error) {
+              setExplainPanel(prev => prev ? { ...prev, loading: false, answerText: 'Error: ' + data.error } : null)
+            }
+          } catch { /* ignore malformed lines */ }
+        }
+      }
+      setExplainPanel(prev => prev ? { ...prev, loading: false } : null)
+    } catch {
+      setExplainPanel(prev => prev ? { ...prev, loading: false, answerText: 'Something went wrong. Please try again.' } : null)
+    }
+  }
+
   const handleSearch = (value: string): void => {
     setSearchTerm(value)
     const trimmed = value.trim()
@@ -74,9 +201,12 @@ function App(): JSX.Element {
       setMessage(null)
       setError(null)
       setBelowThreshold(false)
+      setSynthesis(null)
+      if (synthesisDebounce.current) clearTimeout(synthesisDebounce.current)
       return
     }
     void runSearch(trimmed, subject)
+    scheduleSynthesis(trimmed, subject)
   }
 
   const handleSubjectChange = (next: Subject): void => {
@@ -88,9 +218,12 @@ function App(): JSX.Element {
       setMessage(null)
       setError(null)
       setBelowThreshold(false)
+      setSynthesis(null)
+      if (synthesisDebounce.current) clearTimeout(synthesisDebounce.current)
       return
     }
     void runSearch(trimmed, next)
+    scheduleSynthesis(trimmed, next)
   }
 
   const similarityAccent = (score: number): { border: string; badgeBg: string; badgeFg: string } => {
@@ -173,7 +306,11 @@ function App(): JSX.Element {
           </div>
         </div>
 
-      {/* Search results (always shown) */}
+        {/* Two-column content area */}
+        <div className="content-row">
+        <div className="results-panel">
+
+        {/* Search results */}
         <div id="answer-box">
           {error && <div className="notice error">{error}</div>}
           {!error && message && <div className="notice">{message}</div>}
@@ -237,6 +374,40 @@ function App(): JSX.Element {
                       </div>
                     )}
                   </div>
+
+                  {useLlm && (
+                    <div className="explain-actions">
+                      <button
+                        type="button"
+                        className={`explain-btn${explainPanel?.problemId === problem.problem_id && explainPanel.mode === 'hint' ? ' active' : ''}`}
+                        onClick={() => void runExplain(problem.problem_id, 'hint')}
+                      >
+                        Give me a hint
+                      </button>
+                      <button
+                        type="button"
+                        className={`explain-btn${explainPanel?.problemId === problem.problem_id && explainPanel.mode === 'walkthrough' ? ' active' : ''}`}
+                        onClick={() => void runExplain(problem.problem_id, 'walkthrough')}
+                      >
+                        Full walkthrough
+                      </button>
+                    </div>
+                  )}
+
+                  {explainPanel?.problemId === problem.problem_id && (
+                    <div className="explain-panel">
+                      {explainPanel.loading && !explainPanel.answerText && (
+                        <div className="loading-indicator visible">
+                          <span className="loading-dot" />
+                          <span className="loading-dot" />
+                          <span className="loading-dot" />
+                        </div>
+                      )}
+                      {explainPanel.answerText && (
+                        <p className="explain-text">{explainPanel.answerText}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             }
@@ -326,6 +497,40 @@ function App(): JSX.Element {
                       </div>
                     </div>
                   )}
+
+                  {useLlm && (
+                    <div className="explain-actions">
+                      <button
+                        type="button"
+                        className={`explain-btn${explainPanel?.problemId === cs.problem_id && explainPanel.mode === 'hint' ? ' active' : ''}`}
+                        onClick={() => void runExplain(cs.problem_id, 'hint')}
+                      >
+                        Give me a hint
+                      </button>
+                      <button
+                        type="button"
+                        className={`explain-btn${explainPanel?.problemId === cs.problem_id && explainPanel.mode === 'walkthrough' ? ' active' : ''}`}
+                        onClick={() => void runExplain(cs.problem_id, 'walkthrough')}
+                      >
+                        Full walkthrough
+                      </button>
+                    </div>
+                  )}
+
+                  {explainPanel?.problemId === cs.problem_id && (
+                    <div className="explain-panel">
+                      {explainPanel.loading && !explainPanel.answerText && (
+                        <div className="loading-indicator visible">
+                          <span className="loading-dot" />
+                          <span className="loading-dot" />
+                          <span className="loading-dot" />
+                        </div>
+                      )}
+                      {explainPanel.answerText && (
+                        <p className="explain-text">{explainPanel.answerText}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )
             }
@@ -333,10 +538,43 @@ function App(): JSX.Element {
             return null
           })}
         </div>
-      </div>
 
-      {/* Chat (only when USE_LLM = True in routes.py) */}
-      {useLlm && <Chat subject={subject} />}
+        {/* Drag handle + LLM synthesis */}
+        {useLlm && synthesis && (
+          <>
+            <div
+              className="synthesis-drag-handle"
+              onMouseDown={(e) => {
+                isDragging.current = true
+                dragStartY.current = e.clientY
+                dragStartHeight.current = synthesisHeight
+              }}
+            />
+            <div id="synthesis-box" style={{ height: synthesisHeight, overflowY: 'auto', flexShrink: 0 }}>
+              {synthesis.irQuery && (
+                <div className="chat-ir-pill">
+                  Modified query: <em>{synthesis.irQuery}</em>
+                </div>
+              )}
+              {synthesis.loading && !synthesis.answerText && (
+                <div className="loading-indicator visible">
+                  <span className="loading-dot" />
+                  <span className="loading-dot" />
+                  <span className="loading-dot" />
+                </div>
+              )}
+              {synthesis.answerText && (
+                <p className="synthesis-answer">{synthesis.answerText}</p>
+              )}
+            </div>
+          </>
+        )}
+        </div>{/* end results-panel */}
+
+        {/* Right: chat panel — follow-up questions */}
+        {useLlm && <Chat subject={subject} context={results} />}
+        </div>{/* end content-row */}
+      </div>{/* end page */}
     </div>
   )
 }

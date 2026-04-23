@@ -60,8 +60,20 @@ def _format_context(subject: str, results: list) -> str:
     return "\n\n---\n\n".join(parts)
 
 
+def _get_problem_record(app, subject, problem_id):
+    """Look up a single problem record from app.config by problem_id."""
+    if subject == "math":
+        records = app.config.get("MATH_RECORDS") or []
+    else:
+        records = app.config.get("LEETCODE_RECORDS") or []
+    for r in records:
+        if r.get("problem_id") == problem_id:
+            return r
+    return None
+
+
 def register_chat_route(app, search_fn):
-    """Register /api/chat. search_fn(subject, query, top_k) returns a search response dict."""
+    """Register /api/chat and /api/explain. search_fn(subject, query, top_k) returns a search response dict."""
 
     @app.route("/api/chat", methods=["POST"])
     def chat():
@@ -78,12 +90,18 @@ def register_chat_route(app, search_fn):
 
         client = LLMClient(api_key=api_key)
 
-        # Step 1: rewrite query for IR
-        ir_query = _rewrite_query(client, user_message, subject)
-
-        # Step 2: retrieve problems (already threshold-filtered by search_fn)
-        search_response = search_fn(subject, ir_query, top_k=3)
-        results = search_response.get("results", [])
+        # If the caller provides context (e.g. follow-up on already-retrieved docs),
+        # skip IR and use those documents directly.
+        provided_context = data.get("provided_context")
+        if provided_context and isinstance(provided_context, list) and len(provided_context) > 0:
+            ir_query = "(follow-up on current results)"
+            results = provided_context
+        else:
+            # Step 1: rewrite query for IR
+            ir_query = _rewrite_query(client, user_message, subject)
+            # Step 2: retrieve problems (already threshold-filtered by search_fn)
+            search_response = search_fn(subject, ir_query, top_k=3)
+            results = search_response.get("results", [])
 
         def generate():
             yield f"data: {json.dumps({'ir_query': ir_query})}\n\n"
@@ -124,6 +142,95 @@ def register_chat_route(app, search_fn):
                         yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
             except Exception as e:
                 logger.error(f"Streaming error: {e}")
+                yield f"data: {json.dumps({'error': 'Streaming error occurred'})}\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.route("/api/explain", methods=["POST"])
+    def explain():
+        data = request.get_json() or {}
+        problem_id = data.get("problem_id")
+        subject = (data.get("subject") or "math").strip().lower()
+        mode = (data.get("mode") or "hint").strip().lower()
+
+        if problem_id is None:
+            return jsonify({"error": "problem_id is required"}), 400
+        if mode not in ("hint", "walkthrough"):
+            return jsonify({"error": "mode must be 'hint' or 'walkthrough'"}), 400
+
+        api_key = os.getenv("SPARK_API_KEY")
+        if not api_key:
+            return jsonify({"error": "SPARK_API_KEY not set"}), 500
+
+        resolved = "math" if subject == "math" else "leetcode"
+        record = _get_problem_record(app, resolved, problem_id)
+        if record is None:
+            return jsonify({"error": f"Problem {problem_id} not found"}), 404
+
+        client = LLMClient(api_key=api_key)
+
+        if subject == "math":
+            problem_text = record.get("problem_raw", "")
+            answer_text = record.get("answer", "")
+            target_context = (
+                f"Problem #{problem_id}:\n{problem_text}\nAnswer: {answer_text}"
+            )
+        else:
+            problem_text = record.get("description", "")
+            target_context = (
+                f"{record.get('title', '')} (Difficulty: {record.get('difficulty', 'N/A')})\n"
+                f"{problem_text}"
+            )
+
+        search_response = search_fn(subject, problem_text[:300], top_k=3)
+        similar = [r for r in search_response.get("results", []) if r.get("problem_id") != problem_id][:2]
+
+        domain = "math competition (AMC/AIME)" if subject == "math" else "LeetCode coding"
+        similar_context = _format_context(resolved, similar) if similar else ""
+
+        if mode == "hint":
+            instruction = (
+                "Give the student ONE helpful hint for solving this problem. "
+                "Do NOT reveal the full solution or final answer. "
+                "Point them toward the key insight or technique needed."
+            )
+        else:
+            instruction = (
+                "Walk the student through the complete solution step by step. "
+                "Explain the reasoning at each step clearly."
+            )
+
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"You are StudyBuddy, a helpful tutor for {domain} problems. "
+                    f"{instruction} "
+                    "Be concise and educational. Use plain text only."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    f"Target problem:\n\n{target_context}"
+                    + (f"\n\nSimilar problems for context:\n\n{similar_context}" if similar_context else "")
+                ),
+            },
+        ]
+
+        def generate():
+            if similar:
+                yield f"data: {json.dumps({'ir_results': similar})}\n\n"
+            try:
+                for chunk in client.chat(messages, stream=True, show_thinking=False):
+                    if chunk.get("content"):
+                        yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
+            except Exception as e:
+                logger.error(f"Explain streaming error: {e}")
                 yield f"data: {json.dumps({'error': 'Streaming error occurred'})}\n\n"
 
         return Response(
