@@ -1,14 +1,18 @@
 """
 LLM chat route — only loaded when USE_LLM = True in routes.py.
-Adds a POST /api/chat endpoint that performs LLM-driven RAG.
+Adds POST /api/chat implementing the full RAG pipeline:
+  1. LLM rewrites the user query into an IR-optimized search query
+  2. IR retrieves top-k problems above the similarity threshold
+  3. LLM synthesizes a streamed answer grounded in the retrieved context
 
-Setup:
-  1. Add API_KEY=your_key to .env
-  2. Set USE_LLM = True in routes.py
+SSE events emitted in order:
+  { "ir_query": "..."  }       — the rewritten search query
+  { "ir_results": [...]  }     — retrieved problems (same shape as /api/search)
+  { "content": "..."  }        — streamed answer chunks
+  { "error": "..."  }          — on failure
 """
 import json
 import os
-import re
 import logging
 from flask import request, jsonify, Response, stream_with_context
 from infosci_spark_client import LLMClient
@@ -16,71 +20,106 @@ from infosci_spark_client import LLMClient
 logger = logging.getLogger(__name__)
 
 
-def llm_search_decision(client, user_message):
-    """Ask the LLM whether to search the DB and which word to use."""
+def _rewrite_query(client: LLMClient, user_message: str, subject: str) -> str:
+    """Ask the LLM to produce a short IR-optimized keyword query."""
+    domain = "math competition (AMC/AIME)" if subject == "math" else "LeetCode coding"
     messages = [
         {
             "role": "system",
             "content": (
-                "You have access to a database of Keeping Up with the Kardashians episode titles, "
-                "descriptions, and IMDB ratings. Search is by a single word in the episode title. "
-                "Reply with exactly: YES followed by one space and ONE word to search (e.g. YES wedding), "
-                "or NO if the question does not need episode data."
+                f"You are a search query optimizer for a {domain} problem database. "
+                "Rewrite the user's question as a short keyword search query (5-10 words max) "
+                "that will retrieve the most relevant problems. "
+                "Return ONLY the query — no explanation, no punctuation at the end."
             ),
         },
         {"role": "user", "content": user_message},
     ]
-    response = client.chat(messages)
-    content = (response.get("content") or "").strip().upper()
-    logger.info(f"LLM search decision: {content}")
-    if re.search(r"\bNO\b", content) and not re.search(r"\bYES\b", content):
-        return False, None
-    yes_match = re.search(r"\bYES\s+(\w+)", content)
-    if yes_match:
-        return True, yes_match.group(1).lower()
-    if re.search(r"\bYES\b", content):
-        return True, "Kardashian"
-    return False, None
+    response = client.chat(messages, stream=False, show_thinking=False)
+    return (response.get("content") or user_message).strip()
 
 
-def register_chat_route(app, json_search):
-    """Register the /api/chat SSE endpoint. Called from routes.py."""
+def _format_context(subject: str, results: list) -> str:
+    """Format retrieved problems as plain text context for the LLM."""
+    parts = []
+    for i, r in enumerate(results, start=1):
+        if subject == "math":
+            parts.append(
+                f"[{i}] Problem #{r['problem_id']} (similarity: {r['similarity_score']:.2f})\n"
+                f"Problem: {r['problem_raw']}\n"
+                f"Answer: {r['answer']}"
+            )
+        else:
+            topics = ", ".join(r.get("related_topics") or [])
+            parts.append(
+                f"[{i}] {r['title']} (similarity: {r['similarity_score']:.2f})\n"
+                f"Difficulty: {r.get('difficulty', 'N/A')}\n"
+                f"Description: {r['description']}\n"
+                f"Topics: {topics}"
+            )
+    return "\n\n---\n\n".join(parts)
+
+
+def register_chat_route(app, search_fn):
+    """Register /api/chat. search_fn(subject, query, top_k) returns a search response dict."""
 
     @app.route("/api/chat", methods=["POST"])
     def chat():
         data = request.get_json() or {}
         user_message = (data.get("message") or "").strip()
+        subject = (data.get("subject") or "math").strip().lower()
+
         if not user_message:
             return jsonify({"error": "Message is required"}), 400
 
-        api_key = os.getenv("API_KEY")
+        api_key = os.getenv("SPARK_API_KEY")
         if not api_key:
-            return jsonify({"error": "API_KEY not set — add it to your .env file"}), 500
+            return jsonify({"error": "SPARK_API_KEY not set — add it to your .env file"}), 500
 
         client = LLMClient(api_key=api_key)
-        use_search, search_term = llm_search_decision(client, user_message)
 
-        if use_search:
-            episodes = json_search(search_term or "Kardashian")
-            context_text = "\n\n---\n\n".join(
-                f"Title: {ep['title']}\nDescription: {ep['descr']}\nIMDB Rating: {ep['imdb_rating']}"
-                for ep in episodes
-            ) or "No matching episodes found."
-            messages = [
-                {"role": "system", "content": "Answer questions about Keeping Up with the Kardashians using only the episode information provided."},
-                {"role": "user", "content": f"Episode information:\n\n{context_text}\n\nUser question: {user_message}"},
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": "You are a helpful assistant for Keeping Up with the Kardashians questions."},
-                {"role": "user", "content": user_message},
-            ]
+        # Step 1: rewrite query for IR
+        ir_query = _rewrite_query(client, user_message, subject)
+
+        # Step 2: retrieve problems (already threshold-filtered by search_fn)
+        search_response = search_fn(subject, ir_query, top_k=3)
+        results = search_response.get("results", [])
 
         def generate():
-            if use_search and search_term:
-                yield f"data: {json.dumps({'search_term': search_term})}\n\n"
+            yield f"data: {json.dumps({'ir_query': ir_query})}\n\n"
+            yield f"data: {json.dumps({'ir_results': results})}\n\n"
+
+            if not results:
+                yield (
+                    f"data: {json.dumps({'content': 'I could not find any closely matching problems for your query. Try rephrasing with more specific terms.'})}\n\n"
+                )
+                return
+
+            # Step 3: synthesize answer from retrieved context
+            domain = "math competition (AMC/AIME)" if subject == "math" else "LeetCode coding"
+            context = _format_context(subject, results)
+            messages = [
+                {
+                    "role": "system",
+                    "content": (
+                        f"You are StudyBuddy, a helpful tutor for {domain} problems. "
+                        "Answer ONLY using the retrieved problems provided. "
+                        "Explain the underlying concept or technique, connect it to the retrieved problems, "
+                        "and give the student clear advice on how to approach this type of problem. "
+                        "Be concise. Use plain text only."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Retrieved problems:\n\n{context}\n\n"
+                        f"Student question: {user_message}"
+                    ),
+                },
+            ]
+
             try:
-                for chunk in client.chat(messages, stream=True):
+                for chunk in client.chat(messages, stream=True, show_thinking=False):
                     if chunk.get("content"):
                         yield f"data: {json.dumps({'content': chunk['content']})}\n\n"
             except Exception as e:

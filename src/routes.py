@@ -202,4 +202,7 @@ def register_routes(app):
 
     if USE_LLM:
         from llm_routes import register_chat_route
-        register_chat_route(app, json_search)
+        register_chat_route(
+            app,
+            lambda subject, query, top_k=3: search_problems(app, subject, query, top_k),
+        )
