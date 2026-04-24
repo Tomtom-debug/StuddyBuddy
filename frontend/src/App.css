@@ -140,6 +140,26 @@
   background: transparent;
 }
 
+.search-submit-btn {
+  flex-shrink: 0;
+  margin-left: 8px;
+  padding: 7px 18px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'Open Sans', sans-serif;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.search-submit-btn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
 /* ── Search results ────────────────────────────────────────────────────────── */
 
 #answer-box {

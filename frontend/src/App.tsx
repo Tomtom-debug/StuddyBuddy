@@ -16,6 +16,7 @@ function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [belowThreshold, setBelowThreshold] = useState<boolean>(false)
+  const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
   const [synthesisHeight, setSynthesisHeight] = useState<number>(200)
   const [explainPanel, setExplainPanel] = useState<{
@@ -198,19 +199,24 @@ function App(): JSX.Element {
     }
   }
 
-  const handleSearch = (value: string): void => {
+  const handleInputChange = (value: string): void => {
     setSearchTerm(value)
-    const trimmed = value.trim()
-    if (trimmed === '') {
+    if (value.trim() === '') {
       setResults([])
       setQueryTopDims([])
       setMessage(null)
       setError(null)
       setBelowThreshold(false)
+      setHasSearched(false)
       setSynthesis(null)
       if (synthesisDebounce.current) clearTimeout(synthesisDebounce.current)
-      return
     }
+  }
+
+  const handleSearch = (): void => {
+    const trimmed = searchTerm.trim()
+    if (trimmed === '') return
+    setHasSearched(true)
     void runSearch(trimmed, subject)
     scheduleSynthesis(trimmed, subject)
   }
@@ -339,15 +345,20 @@ function App(): JSX.Element {
             </button>
           </div>
 
-          <div className="input-box" onClick={() => document.getElementById('search-input')?.focus()}>
+          <form
+            className="input-box"
+            onSubmit={(e) => { e.preventDefault(); handleSearch() }}
+            onClick={() => document.getElementById('search-input')?.focus()}
+          >
             <img src={SearchIcon} alt="search" />
             <input
               id="search-input"
               placeholder={subject === 'math' ? 'Paste a math problem or concept…' : 'Paste a CS problem or concept…'}
               value={searchTerm}
-              onChange={(e) => handleSearch(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
             />
-          </div>
+            <button type="submit" className="search-submit-btn">Search</button>
+          </form>
 
           <div className="hint-text">
             {subject === 'math'
@@ -389,7 +400,7 @@ function App(): JSX.Element {
             </div>
           )}
 
-          {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
+          {!loading && !error && results.length === 0 && hasSearched && (
             <div className="notice">
               {belowThreshold
                 ? "No problems matched your query closely enough. Try rephrasing or using more specific terms."
