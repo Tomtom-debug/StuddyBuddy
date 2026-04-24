@@ -1622,3 +1622,449 @@ button:focus-visible, input:focus-visible {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ══════════════════════════════════════════════════════════════
+   UNIVERSE 3-D
+══════════════════════════════════════════════════════════════ */
+
+.universe-chip {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #a5c8ff;
+  border: 1px solid #2d4a7a;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  transition: all 0.2s;
+}
+.universe-chip:hover {
+  background: linear-gradient(135deg, #0f3460 0%, #1a1a2e 100%);
+  color: #ffffff;
+  border-color: #60a5fa;
+  box-shadow: 0 0 14px rgba(96, 165, 250, 0.35);
+}
+
+/* ── Full-screen overlay ─────────────────────────────────── */
+.uni-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: #000814;
+  overflow: hidden;
+  font-family: var(--font, system-ui, sans-serif);
+}
+
+/* ── Loading ─────────────────────────────────────────────── */
+.uni-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: #60a5fa;
+  font-size: 15px;
+  letter-spacing: 0.05em;
+}
+.uni-dots {
+  display: flex;
+  gap: 8px;
+}
+.uni-dots span {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #60a5fa;
+  animation: uni-pulse 1.2s ease-in-out infinite;
+}
+.uni-dots span:nth-child(2) { animation-delay: 0.2s; }
+.uni-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes uni-pulse {
+  0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+  40%            { opacity: 1;   transform: scale(1);   }
+}
+
+/* ── Top bar ─────────────────────────────────────────────── */
+.uni-topbar {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: linear-gradient(to bottom, rgba(0,8,20,0.92) 0%, transparent 100%);
+  pointer-events: none;
+}
+.uni-topbar-left, .uni-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  pointer-events: auto;
+}
+.uni-brand {
+  color: #93c5fd;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+.uni-stats {
+  color: #4a6a8a;
+  font-size: 12px;
+}
+.uni-hint {
+  color: #4a6a8a;
+  font-size: 12px;
+}
+.uni-close-btn {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1px solid #2d4a7a;
+  background: rgba(0, 8, 20, 0.8);
+  color: #93c5fd;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.uni-close-btn:hover {
+  border-color: #60a5fa;
+  color: #fff;
+  background: rgba(96, 165, 250, 0.15);
+}
+
+/* ── Galaxy arm labels ───────────────────────────────────── */
+.uni-arm-label {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  color: rgba(148, 163, 184, 0.35);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  pointer-events: none;
+  user-select: none;
+}
+.uni-arm-left  { left: 18px; }
+.uni-arm-right { right: 18px; }
+
+/* ── Legend ──────────────────────────────────────────────── */
+.uni-legend {
+  position: absolute;
+  bottom: 24px;
+  left: 20px;
+  z-index: 10;
+  display: flex;
+  gap: 20px;
+  background: rgba(0, 8, 20, 0.78);
+  border: 1px solid rgba(45, 74, 122, 0.5);
+  border-radius: 12px;
+  padding: 12px 16px;
+  backdrop-filter: blur(8px);
+}
+.uni-legend-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 110px;
+}
+.uni-legend-head {
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
+.uni-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #94a3b8;
+  font-size: 11px;
+}
+.uni-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 0 5px currentColor;
+}
+
+/* ── Search badge ────────────────────────────────────────── */
+.uni-search-badge {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  background: rgba(0, 8, 20, 0.85);
+  border: 1px solid rgba(251, 191, 36, 0.6);
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 16px;
+  border-radius: 20px;
+  letter-spacing: 0.04em;
+  animation: uni-fadein 0.4s ease;
+  pointer-events: none;
+}
+
+/* ── Hover tooltip ───────────────────────────────────────── */
+.uni-tooltip {
+  position: absolute;
+  bottom: 24px;
+  right: 20px;
+  z-index: 10;
+  max-width: 280px;
+  background: rgba(0, 8, 20, 0.9);
+  border: 1px solid rgba(45, 74, 122, 0.7);
+  border-radius: 12px;
+  padding: 14px 16px;
+  backdrop-filter: blur(10px);
+  animation: uni-fadein 0.2s ease;
+  pointer-events: none;
+}
+.uni-tt-type {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+.uni-tt-title {
+  color: #e2e8f0;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+.uni-tt-preview {
+  color: #64748b;
+  font-size: 11px;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.uni-tt-cta {
+  color: #60a5fa;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* ── Selected node panel ─────────────────────────────────── */
+.uni-panel {
+  position: absolute;
+  top: 60px;
+  right: 20px;
+  z-index: 10;
+  width: 300px;
+  background: rgba(0, 8, 20, 0.92);
+  border: 1px solid rgba(45, 74, 122, 0.8);
+  border-radius: 16px;
+  padding: 20px;
+  backdrop-filter: blur(12px);
+  animation: uni-slidein 0.25s ease;
+}
+.uni-panel-close {
+  position: absolute;
+  top: 12px; right: 14px;
+  background: none;
+  border: none;
+  color: #4a6a8a;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+.uni-panel-close:hover { color: #e2e8f0; }
+.uni-panel-type {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.uni-panel-title {
+  color: #e2e8f0;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+.uni-panel-preview {
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.6;
+  margin-bottom: 16px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+.uni-panel-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.uni-btn-primary {
+  display: block;
+  text-align: center;
+  padding: 9px 16px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #1d4ed8, #2563eb);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+.uni-btn-primary:hover { opacity: 0.85; }
+.uni-btn-ghost {
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: 1px solid #2d4a7a;
+  background: transparent;
+  color: #93c5fd;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  width: 100%;
+}
+.uni-btn-ghost:hover {
+  border-color: #60a5fa;
+  background: rgba(96, 165, 250, 0.1);
+}
+
+/* ── Difficulty badges ───────────────────────────────────── */
+.uni-tt-diff, .uni-panel-diff {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.04em;
+  margin-bottom: 8px;
+}
+.diff-easy   { background: rgba(52, 211, 153, 0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+.diff-medium { background: rgba(251, 191, 36, 0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+.diff-hard   { background: rgba(248, 113, 113, 0.15); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
+
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes uni-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes uni-slidein {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Canvas fills overlay ────────────────────────────────── */
+.uni-overlay canvas {
+  display: block;
+}
+
+/* ── Orbit HUD ───────────────────────────────────────────── */
+.uni-orbit-hud {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 8, 20, 0.82);
+  border: 1px solid rgba(255, 215, 0, 0.25);
+  border-radius: 24px;
+  padding: 8px 18px 8px 10px;
+  backdrop-filter: blur(8px);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.uni-orbit-ring-svg {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+}
+
+.uni-orbit-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #60a5fa;
+  letter-spacing: 0.04em;
+}
+
+/* ── Solved button override ──────────────────────────────── */
+.uni-btn-ghost.uni-btn-solved {
+  border-color: #ffd700;
+  color: #ffd700;
+  background: rgba(255, 215, 0, 0.08);
+}
+.uni-btn-ghost.uni-btn-solved:hover {
+  background: rgba(255, 215, 0, 0.18);
+}
+
+/* ── Milestone flash ─────────────────────────────────────── */
+.uni-milestone-flash {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 20;
+  background: rgba(0, 8, 20, 0.92);
+  border: 1.5px solid #ffd700;
+  border-radius: 16px;
+  color: #ffd700;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 18px 32px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: uni-milestone-anim 2.2s ease forwards;
+}
+
+@keyframes uni-milestone-anim {
+  0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.85); }
+  12%  { opacity: 1; transform: translate(-50%, -50%) scale(1.05); }
+  20%  { transform: translate(-50%, -50%) scale(1); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* ── Celebration banner ──────────────────────────────────── */
+.uni-celebration {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 8, 20, 0.92);
+  border: 1.5px solid #ffd700;
+  border-radius: 30px;
+  color: #ffd700;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 12px 28px;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: uni-celebration-anim 3.5s ease forwards;
+}
+
+.uni-celebration-icon {
+  font-size: 20px;
+  animation: uni-spin 1.2s linear infinite;
+}
+
+@keyframes uni-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+@keyframes uni-celebration-anim {
+  0%   { opacity: 0; transform: translateX(-50%) translateY(-12px); }
+  10%  { opacity: 1; transform: translateX(-50%) translateY(0); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateX(-50%) translateY(-8px); }
+}

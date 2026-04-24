@@ -243,6 +243,11 @@ def register_routes(app):
             return jsonify({"error": str(exc)}), 500
 
 
+    @app.route("/api/universe")
+    def universe():
+        nodes = app.config.get("UNIVERSE_NODES", [])
+        return jsonify({"nodes": nodes, "count": len(nodes)})
+
     if USE_LLM:
         from llm_routes import register_chat_route
         register_chat_route(

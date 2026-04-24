@@ -14,14 +14,50 @@ const KATEX_OPTS = {
     { left: '\\[', right: '\\]', display: true },
   ],
   throwOnError: false,
+  strict: 'ignore',
+  preProcess: (math: string) => math.replace(/\\text-/g, '\\text{-}'),
+}
+
+function removeLastUnescapedDollar(input: string): string {
+  for (let i = input.length - 1; i >= 0; i -= 1) {
+    if (input[i] === '$' && input[i - 1] !== '\\') {
+      return input.slice(0, i) + input.slice(i + 1)
+    }
+  }
+  return input
+}
+
+function normalizeDanglingDelimiters(input: string): string {
+  let out = input
+  const unescapedDollars = (out.match(/(?<!\\)\$/g) ?? []).length
+  if (unescapedDollars % 2 === 1) {
+    out = removeLastUnescapedDollar(out)
+  }
+  return out
+}
+
+function simplifyArrayAlignment(input: string): string {
+  return input.replace(/\\begin\{array\}\{((?:[^{}]|\{[^{}]*\})*)\}/g, (_match, spec: string) => {
+    const simplified = spec
+      .replace(/@\{[^{}]*\}/g, '')
+      .replace(/\s+/g, '')
+      .replace(/[^clr|]/g, '')
+
+    return `\\begin{array}{${simplified || 'c'}}`
+  })
 }
 
 function normalizeLatex(input: string): string {
-  return input
-    .replace(/\\begin\{align\*\}/g, '$$\\begin{aligned}')
-    .replace(/\\end\{align\*\}/g, '\\end{aligned}$$')
-    .replace(/\\begin\{align\}/g, '$$\\begin{aligned}')
-    .replace(/\\end\{align\}/g, '\\end{aligned}$$')
+  return simplifyArrayAlignment(normalizeDanglingDelimiters(
+    input
+      // A few records use "$$43$" instead of a literal currency sign "$43".
+      .replace(/\$\$([0-9][0-9,]*(?:\.[0-9]+)?)\$(?!\$)/g, '\\$$1')
+      .replace(/\\text-/g, '\\text{-}')
+      .replace(/\\begin\{align\*\}/g, '$$\\begin{aligned}')
+      .replace(/\\end\{align\*\}/g, '\\end{aligned}$$')
+      .replace(/\\begin\{align\}/g, '$$\\begin{aligned}')
+      .replace(/\\end\{align\}/g, '\\end{aligned}$$')
+  ))
 }
 
 function TabularBlock({ src }: { src: string }): JSX.Element {

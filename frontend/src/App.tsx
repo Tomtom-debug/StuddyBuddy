@@ -1,10 +1,13 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
 import './App.css'
 import { Icon } from './icons'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
+import type { UniverseNode } from './Universe3D'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
+
+const Universe3D = lazy(() => import('./Universe3D'))
 
 // ════════════════════════════════════════════════════════
 // Similarity ring
@@ -483,9 +486,15 @@ function App(): JSX.Element {
   const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf'>('svd')
   const [tweaks, setTweaks] = useState<Tweaks>({ accent: 'emerald', density: 'cozy', mascot: true, practiceMode: false })
   const [tweaksOpen, setTweaksOpen] = useState<boolean>(false)
+  const [universeOpen, setUniverseOpen] = useState<boolean>(false)
 
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
+
+  const highlightIds = useMemo(() => {
+    if (results.length === 0) return new Set<string>()
+    return new Set(results.map(r => `${subject}_${r.problem_id}`))
+  }, [results, subject])
 
   useEffect(() => {
     const p = PALETTES[tweaks.accent]
@@ -592,6 +601,32 @@ function App(): JSX.Element {
     }
   }
 
+  const buildUniverseQuery = (node: UniverseNode): string => {
+    const seeded = (node.query_seed ?? '').trim()
+    if (seeded !== '') return seeded
+    if (node.type === 'cs') return `${node.title ?? ''} ${node.preview}`.trim()
+    return node.preview.trim()
+  }
+
+  const handleUniverseFindSimilar = (node: UniverseNode): void => {
+    const nextSubject: Subject = node.type === 'cs' ? 'cs' : 'math'
+    const query = buildUniverseQuery(node)
+
+    setUniverseOpen(false)
+    if (query === '') return
+
+    setSubject(nextSubject)
+    setSearchTerm(query)
+    setHasSearched(true)
+
+    void (async () => {
+      const fetched = await runSearch(query, nextSubject)
+      if (useLlm && fetched.length > 0) {
+        void runSynthesis(fetched, query, nextSubject)
+      }
+    })()
+  }
+
   const handleInputChange = (value: string): void => {
     setSearchTerm(value)
     if (value.trim() === '') {
@@ -673,6 +708,13 @@ function App(): JSX.Element {
         </header>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <button
+            className="chip universe-chip"
+            onClick={() => setUniverseOpen(true)}
+            title="Explore all problems in 3D space"
+          >
+            ◉ Problem Multiverse
+          </button>
           <div className="subject-swap" role="tablist">
             <button
               className={`subject-btn ${subject === 'math' ? 'active' : ''}`}
@@ -835,6 +877,26 @@ function App(): JSX.Element {
       </main>
 
       {useLlm && <Chat subject={subject} context={results} />}
+
+      {universeOpen && (
+        <Suspense
+          fallback={
+            <div className="uni-overlay">
+              <div className="uni-loading">
+                <div className="uni-dots"><span /><span /><span /></div>
+                <p>Loading universe…</p>
+              </div>
+            </div>
+          }
+        >
+          <Universe3D
+            subject={subject}
+            highlightIds={highlightIds}
+            onFindSimilar={handleUniverseFindSimilar}
+            onClose={() => setUniverseOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {tweaksOpen ? (
         <div className="tweaks">
