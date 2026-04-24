@@ -124,7 +124,8 @@ def register_chat_route(app, search_fn):
                         "Answer ONLY using the retrieved problems provided. "
                         "Explain the underlying concept or technique, connect it to the retrieved problems, "
                         "and give the student clear advice on how to approach this type of problem. "
-                        "Be concise. Use plain text only."
+                        "Be concise — aim for 150 to 200 words. Never exceed 220 words. "
+                        "Use plain text only."
                     ),
                 },
                 {

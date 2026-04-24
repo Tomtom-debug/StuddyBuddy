@@ -27,8 +27,8 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
     irQuery: '',
     irResults: [],
     answerText: subject === 'math'
-      ? "Hi! I'm Sprout 🌱 Ask me anything about these problems — I'll use what you're looking at as context."
-      : "Hi! I'm Sprout 🌱 I can explain approaches, compare solutions, or help you spot patterns across these problems.",
+      ? "Hi! I'm Sprout. Ask me anything about the retrieved problems, or any math concept you want to understand better!"
+      : "Hi! I'm Sprout. Ask me anything about the retrieved problems, or any LeetCode concept or pattern you want to explore!",
   })
 
   const [messages, setMessages] = useState<Message[]>([initialMessage()])
@@ -46,7 +46,7 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
   }, [subject])
 
   const quickPrompts = subject === 'math'
-    ? ["Explain the key technique here", "Which problem should I start with?", "Compare all 5 approaches"]
+    ? ["Explain the key technique here", "Which problem should I start with?", "Compare these problems"]
     : ["What's the two-pointer pattern?", "Which one should I solve first?", "Compare hash map vs pointers"]
 
   const quickActions = subject === 'math'
@@ -180,9 +180,6 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
 
           return (
             <div key={i} className="msg assistant">
-              {msg.irQuery && (
-                <div className="ir-pill">↻ refined: {msg.irQuery}</div>
-              )}
               {msg.irResults.length > 0 && (
                 <details className="chat-context-section">
                   <summary>
@@ -192,11 +189,6 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
                     {msg.irResults.map(r => renderResult(r))}
                   </div>
                 </details>
-              )}
-              {msg.irQuery && msg.irResults.length === 0 && (
-                <div className="chat-no-results">
-                  No problems matched closely enough for context.
-                </div>
               )}
               {msg.answerText && (
                 <p className="chat-answer">{msg.answerText}</p>

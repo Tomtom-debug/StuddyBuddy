@@ -477,11 +477,15 @@ function App(): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [belowThreshold, setBelowThreshold] = useState<boolean>(false)
+  const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
+  const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
+  const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf'>('svd')
   const [tweaks, setTweaks] = useState<Tweaks>({ accent: 'emerald', density: 'cozy', mascot: true, practiceMode: false })
   const [tweaksOpen, setTweaksOpen] = useState<boolean>(false)
 
   const latestRequestId = useRef<number>(0)
+  const latestSynthesisId = useRef<number>(0)
 
   useEffect(() => {
     const p = PALETTES[tweaks.accent]
@@ -499,7 +503,7 @@ function App(): JSX.Element {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
   }, [])
 
-  const runSearch = async (value: string, subj: Subject): Promise<void> => {
+  const runSearch = async (value: string, subj: Subject, mode?: 'svd' | 'tfidf'): Promise<SearchResult[]> => {
     const requestId = latestRequestId.current + 1
     latestRequestId.current = requestId
 
@@ -508,40 +512,86 @@ function App(): JSX.Element {
     setMessage(null)
     setBelowThreshold(false)
     setQueryTopDims([])
+    setSynthesis(null)
 
     try {
       const response = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject: subj, query: value, top_k: 5 }),
+        body: JSON.stringify({ subject: subj, query: value, top_k: 20, retrieval_mode: mode ?? retrievalMode }),
       })
 
       const data = await response.json() as Record<string, unknown>
-      if (latestRequestId.current !== requestId) return
+      if (latestRequestId.current !== requestId) return []
 
       if (!response.ok) {
         setError(String(data?.error ?? data?.message ?? `Search failed (${response.status})`))
         setResults([])
         setQueryTopDims([])
-        return
+        return []
       }
 
-      setResults(Array.isArray(data?.results) ? data.results as SearchResult[] : [])
+      const fetched = Array.isArray(data?.results) ? data.results as SearchResult[] : []
+      setResults(fetched)
       setBelowThreshold(data?.below_threshold === true)
       setQueryTopDims(Array.isArray(data?.query_top_dims) ? data.query_top_dims as SvdDim[] : [])
       if (typeof data?.message === 'string' && (data.message as string).trim() !== '') {
         setMessage(data.message as string)
       }
+      return fetched
     } catch {
       setError('Something went wrong. Please try again.')
       setResults([])
       setQueryTopDims([])
+      return []
     } finally {
       if (latestRequestId.current === requestId) setLoading(false)
     }
   }
 
-  // Only updates the input display — does not trigger search
+  const runSynthesis = async (_context: SearchResult[], query: string, subj: Subject): Promise<void> => {
+    const synthId = latestSynthesisId.current + 1
+    latestSynthesisId.current = synthId
+    setSynthesis({ irQuery: '', answerText: '', loading: true })
+
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: query, subject: subj }),
+      })
+
+      if (!response.ok || latestSynthesisId.current !== synthId) return
+
+      const reader = response.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value: chunk } = await reader.read()
+        if (done || latestSynthesisId.current !== synthId) break
+        buffer += decoder.decode(chunk, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const data = JSON.parse(line.slice(6)) as Record<string, unknown>
+            if (typeof data.ir_query === 'string') {
+              setSynthesis(prev => prev ? { ...prev, irQuery: data.ir_query as string } : null)
+            }
+            if (typeof data.content === 'string') {
+              setSynthesis(prev => prev ? { ...prev, loading: false, answerText: prev.answerText + data.content } : null)
+            }
+          } catch { /* ignore */ }
+        }
+      }
+      setSynthesis(prev => prev ? { ...prev, loading: false } : null)
+    } catch {
+      setSynthesis(null)
+    }
+  }
+
   const handleInputChange = (value: string): void => {
     setSearchTerm(value)
     if (value.trim() === '') {
@@ -550,20 +600,45 @@ function App(): JSX.Element {
       setMessage(null)
       setError(null)
       setBelowThreshold(false)
+      setHasSearched(false)
+      setSynthesis(null)
     }
   }
 
-  // Triggers the actual search
   const handleSubmit = (): void => {
     const trimmed = searchTerm.trim()
     if (trimmed === '') return
-    void runSearch(trimmed, subject)
+    setHasSearched(true)
+    void (async () => {
+      const fetched = await runSearch(trimmed, subject)
+      if (useLlm && fetched.length > 0) {
+        void runSynthesis(fetched, trimmed, subject)
+      }
+    })()
   }
 
   const handleSubjectChange = (next: Subject): void => {
     setSubject(next)
+    setSearchTerm('')
+    setResults([])
+    setQueryTopDims([])
+    setMessage(null)
+    setError(null)
+    setBelowThreshold(false)
+    setHasSearched(false)
+    setSynthesis(null)
+  }
+
+  const handleRetrievalModeChange = (next: 'svd' | 'tfidf'): void => {
+    setRetrievalMode(next)
     const trimmed = searchTerm.trim()
-    if (trimmed !== '') void runSearch(trimmed, next)
+    if (trimmed !== '' && hasSearched) {
+      setHasSearched(true)
+      void (async () => {
+        const fetched = await runSearch(trimmed, subject, next)
+        if (useLlm && fetched.length > 0) void runSynthesis(fetched, trimmed, subject)
+      })()
+    }
   }
 
   const updateTweak = <K extends keyof Tweaks>(key: K, val: Tweaks[K]): void => {
@@ -610,6 +685,22 @@ function App(): JSX.Element {
               onClick={() => handleSubjectChange('cs')}
             >
               <span className="emoji">{'{}'}</span> CS
+            </button>
+          </div>
+          <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
+            <button
+              className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
+              onClick={() => handleRetrievalModeChange('svd')}
+              title="SVD (Latent Semantic Analysis) — captures semantic meaning"
+            >
+              SVD
+            </button>
+            <button
+              className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
+              onClick={() => handleRetrievalModeChange('tfidf')}
+              title="Raw TF-IDF — exact keyword matching"
+            >
+              TF-IDF
             </button>
           </div>
           {useLlm && (
@@ -678,7 +769,7 @@ function App(): JSX.Element {
           </div>
         )}
 
-        {!loading && !error && results.length === 0 && searchTerm.trim() !== '' && (
+        {!loading && !error && results.length === 0 && hasSearched && (
           <div className="empty">
             <div className="empty-big">
               {belowThreshold ? 'Nothing matched closely enough 🌱' : 'No problems found'}
@@ -689,6 +780,25 @@ function App(): JSX.Element {
                 : 'Try a different query.'}
             </div>
           </div>
+        )}
+
+        {useLlm && synthesis && (
+          <section className="synthesis-section">
+            <div className="synthesis-head">
+              <span className="dot-g" /> AI Overview
+              {synthesis.irQuery && (
+                <span className="synthesis-query-pill">Modified query: <em>{synthesis.irQuery}</em></span>
+              )}
+            </div>
+            {synthesis.loading && !synthesis.answerText && (
+              <div className="msg-thinking" style={{ marginTop: 8 }}>
+                <span /><span /><span />
+              </div>
+            )}
+            {synthesis.answerText && (
+              <p className="synthesis-text">{synthesis.answerText}</p>
+            )}
+          </section>
         )}
 
         {!loading && searchTerm.trim() === '' && (
