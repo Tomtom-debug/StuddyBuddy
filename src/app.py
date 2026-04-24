@@ -91,6 +91,9 @@ def load_math_artifacts():
         with open(os.path.join(processed_directory, "math_words_compressed.pkl"), "rb") as file:
             app.config["MATH_WORDS_COMPRESSED"] = pickle.load(file)
 
+        with open(os.path.join(processed_directory, "math_tfidf_matrix.pkl"), "rb") as file:
+            app.config["MATH_TFIDF_MATRIX"] = pickle.load(file)
+
         app.config["MATH_DIM_LABELS"] = compute_dim_labels(
             app.config["MATH_VECTORIZER"], app.config["MATH_WORDS_COMPRESSED"]
         )
@@ -111,6 +114,9 @@ def load_leetcode_artifacts():
 
         with open(os.path.join(processed_directory, "leetcode_words_compressed.pkl"), "rb") as file:
             app.config["LEETCODE_WORDS_COMPRESSED"] = pickle.load(file)
+
+        with open(os.path.join(processed_directory, "leetcode_tfidf_matrix.pkl"), "rb") as file:
+            app.config["LEETCODE_TFIDF_MATRIX"] = pickle.load(file)
 
         app.config["LEETCODE_DIM_LABELS"] = compute_dim_labels(
             app.config["LEETCODE_VECTORIZER"], app.config["LEETCODE_WORDS_COMPRESSED"]

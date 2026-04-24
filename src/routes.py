@@ -141,27 +141,41 @@ def format_search_result(subject, record, score, doc_top_dims=None):
     raise ValueError("subject must be 'math' or 'cs'")
 
 
-def search_problems(app, subject, query, top_k=5):
+def search_problems(app, subject, query, top_k=5, retrieval_mode="svd"):
     resolved_subject = resolve_subject(subject)
 
     records, vectorizer, docs_compressed, words_compressed, dim_labels = get_retrieval_artifacts(app, resolved_subject)
 
     query_text = build_combined_text(query)
-    # Fold the query into the SVD space: transform via TF-IDF then project via V
-    query_tfidf = vectorizer.transform([query_text])
-    query_vec = normalize(query_tfidf.dot(words_compressed))
-    ranked_matches = rank_by_cosine(query_vec, docs_compressed, top_k=top_k)
-
     threshold = SIMILARITY_THRESHOLDS.get(resolved_subject, 0.5)
-    query_top_dims = top_dims(query_vec[0], dim_labels) if dim_labels is not None else None
 
-    results = []
-    for document_index, score in ranked_matches:
-        if score < threshold:
-            continue
-        record = records[document_index]
-        doc_top_dims = top_dims(docs_compressed[document_index], dim_labels) if dim_labels is not None else None
-        results.append(format_search_result(resolved_subject, record, score, doc_top_dims))
+    if retrieval_mode == "tfidf":
+        tfidf_key = "MATH_TFIDF_MATRIX" if resolved_subject == "math" else "LEETCODE_TFIDF_MATRIX"
+        tfidf_matrix = app.config.get(tfidf_key)
+        if tfidf_matrix is None:
+            raise RuntimeError(f"TF-IDF matrix for '{resolved_subject}' not loaded.")
+        query_vec = normalize(vectorizer.transform([query_text]))
+        doc_matrix = normalize(tfidf_matrix)
+        ranked_matches = rank_by_cosine(query_vec, doc_matrix, top_k=top_k)
+        query_top_dims = None
+        results = []
+        for document_index, score in ranked_matches:
+            if score < threshold:
+                continue
+            results.append(format_search_result(resolved_subject, records[document_index], score))
+    else:
+        # SVD (LSA) mode — default
+        query_tfidf = vectorizer.transform([query_text])
+        query_vec = normalize(query_tfidf.dot(words_compressed))
+        ranked_matches = rank_by_cosine(query_vec, docs_compressed, top_k=top_k)
+        query_top_dims = top_dims(query_vec[0], dim_labels) if dim_labels is not None else None
+        results = []
+        for document_index, score in ranked_matches:
+            if score < threshold:
+                continue
+            record = records[document_index]
+            doc_top_dims = top_dims(docs_compressed[document_index], dim_labels) if dim_labels is not None else None
+            results.append(format_search_result(resolved_subject, record, score, doc_top_dims))
 
     response = {
         "subject": subject,
@@ -169,6 +183,7 @@ def search_problems(app, subject, query, top_k=5):
         "query_combined_text": query_text,
         "results": results,
         "below_threshold": len(results) == 0,
+        "retrieval_mode": retrieval_mode,
     }
     if query_top_dims is not None:
         response["query_top_dims"] = query_top_dims
@@ -201,6 +216,9 @@ def register_routes(app):
         subject = payload.get("subject", "").strip().lower()
         query = payload.get("query", "").strip()
         top_k = payload.get("top_k", 5)
+        retrieval_mode = payload.get("retrieval_mode", "svd").strip().lower()
+        if retrieval_mode not in ("svd", "tfidf"):
+            retrieval_mode = "svd"
 
         if not subject:
             return jsonify({"error": "Missing 'subject' field."}), 400
@@ -217,7 +235,7 @@ def register_routes(app):
             return jsonify({"error": "'top_k' must be positive."}), 400
 
         try:
-            response = search_problems(app, subject, query, top_k=top_k)
+            response = search_problems(app, subject, query, top_k=top_k, retrieval_mode=retrieval_mode)
             return jsonify(response)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400

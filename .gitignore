@@ -30,4 +30,4 @@ package-lock.json
 .venv312/
 
 CLAUDE.md
-plan.md
+plan.md.claude/
