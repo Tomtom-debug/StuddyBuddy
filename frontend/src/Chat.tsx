@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import SearchIcon from './assets/mag.png'
-import MathRenderer from './MathRenderer'
+import { Icon } from './icons'
 import type { SearchResult, Subject } from './types'
 
 interface UserMessage {
@@ -23,21 +22,42 @@ interface ChatProps {
 }
 
 function Chat({ subject, context }: ChatProps): JSX.Element {
-  const [messages, setMessages] = useState<Message[]>([])
+  const initialMessage = (): AssistantMessage => ({
+    isUser: false,
+    irQuery: '',
+    irResults: [],
+    answerText: subject === 'math'
+      ? "Hi! I'm Sprout 🌱 Ask me anything about these problems — I'll use what you're looking at as context."
+      : "Hi! I'm Sprout 🌱 I can explain approaches, compare solutions, or help you spot patterns across these problems.",
+  })
+
+  const [messages, setMessages] = useState<Message[]>([initialMessage()])
   const [input, setInput] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight
   }, [messages, loading])
 
-  const sendMessage = async (e: React.FormEvent): Promise<void> => {
-    e.preventDefault()
-    const text = input.trim()
-    if (!text || loading) return
+  useEffect(() => {
+    setMessages([initialMessage()])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subject])
 
-    setMessages(prev => [...prev, { isUser: true, text }])
+  const quickPrompts = subject === 'math'
+    ? ["Explain the key technique here", "Which problem should I start with?", "Compare all 5 approaches"]
+    : ["What's the two-pointer pattern?", "Which one should I solve first?", "Compare hash map vs pointers"]
+
+  const quickActions = subject === 'math'
+    ? ["💡 Give me a hint", "✨ Walk me through #1", "🎯 Quiz me", "📚 Related topic"]
+    : ["💡 Give me a hint", "✨ Walk me through #1", "🎯 Quiz me", "📚 Time complexity"]
+
+  const sendMessage = async (text?: string): Promise<void> => {
+    const t = (text ?? input).trim()
+    if (!t || loading) return
+
+    setMessages(prev => [...prev, { isUser: true, text: t }])
     setInput('')
     setLoading(true)
 
@@ -45,21 +65,28 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: text, subject, provided_context: context.length > 0 ? context : undefined }),
+        body: JSON.stringify({
+          message: t,
+          subject,
+          provided_context: context.length > 0 ? context : undefined,
+        }),
       })
 
       if (!response.ok) {
-        const data = await response.json()
+        const data = await response.json() as Record<string, unknown>
         setMessages(prev => [
           ...prev,
-          { isUser: false, irQuery: '', irResults: [], answerText: 'Error: ' + (data.error || response.status) },
+          { isUser: false, irQuery: '', irResults: [], answerText: 'Error: ' + String(data.error ?? response.status) },
         ])
         setLoading(false)
         return
       }
 
       setLoading(false)
-      setMessages(prev => [...prev, { isUser: false, irQuery: '', irResults: [], answerText: '' }])
+      setMessages(prev => [
+        ...prev,
+        { isUser: false, irQuery: '', irResults: [], answerText: '' },
+      ])
 
       const reader = response.body!.getReader()
       const decoder = new TextDecoder()
@@ -74,139 +101,155 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           try {
-            const data = JSON.parse(line.slice(6))
+            const data = JSON.parse(line.slice(6)) as Record<string, unknown>
             setMessages(prev => {
               const last = prev[prev.length - 1] as AssistantMessage
-              if (data.ir_query !== undefined) return [...prev.slice(0, -1), { ...last, irQuery: data.ir_query }]
-              if (data.ir_results !== undefined) return [...prev.slice(0, -1), { ...last, irResults: data.ir_results }]
-              if (data.content !== undefined) return [...prev.slice(0, -1), { ...last, answerText: last.answerText + data.content }]
-              if (data.error) return [...prev.slice(0, -1), { ...last, answerText: 'Error: ' + data.error }]
+              if (data.ir_query !== undefined) return [...prev.slice(0, -1), { ...last, irQuery: String(data.ir_query) }]
+              if (data.ir_results !== undefined) return [...prev.slice(0, -1), { ...last, irResults: data.ir_results as SearchResult[] }]
+              if (typeof data.content === 'string') return [...prev.slice(0, -1), { ...last, answerText: last.answerText + data.content }]
+              if (typeof data.error === 'string') return [...prev.slice(0, -1), { ...last, answerText: 'Error: ' + data.error }]
               return prev
             })
-          } catch { /* ignore malformed lines */ }
+          } catch { /* ignore malformed */ }
         }
       }
     } catch {
       setMessages(prev => [
         ...prev,
-        { isUser: false, irQuery: '', irResults: [], answerText: 'Something went wrong. Check the console.' },
+        { isUser: false, irQuery: '', irResults: [], answerText: 'Something went wrong. Please try again.' },
       ])
       setLoading(false)
     }
   }
 
-  const renderContextCard = (result: SearchResult) => {
+  const renderResult = (result: SearchResult): JSX.Element => {
     const score = result.similarity_score
-    const accent = score >= 0.75 ? '#16a34a' : score >= 0.55 ? '#2563eb' : '#7c3aed'
+    const accentColor = score >= 0.75 ? '#059669' : score >= 0.55 ? '#f59e0b' : '#a78bfa'
 
     if ('problem_raw' in result) {
-      const preview = result.problem_raw.length > 180
-        ? result.problem_raw.slice(0, 180) + '…'
-        : result.problem_raw
       return (
-        <div key={result.problem_id} className="chat-context-card" style={{ borderLeftColor: accent }}>
-          <div className="chat-context-card-header">
-            <span className="chat-context-label">Problem #{result.problem_id}</span>
-            <span className="chat-similarity-badge" style={{ color: accent }}>
-              {score.toFixed(2)}
-            </span>
-          </div>
+        <div key={result.problem_id} className="chat-context-card" style={{ borderLeftColor: accentColor }}>
+          <span className="chat-context-label">Problem #{result.problem_id}</span>
+          <span className="chat-context-score">{score.toFixed(2)}</span>
           <div className="chat-context-text">
-            <MathRenderer text={preview} />
+            {result.problem_raw.slice(0, 120)}{result.problem_raw.length > 120 ? '…' : ''}
           </div>
         </div>
       )
     }
 
     return (
-      <div key={result.problem_id} className="chat-context-card" style={{ borderLeftColor: accent }}>
-        <div className="chat-context-card-header">
-          <span className="chat-context-label">{result.title}</span>
-          <span className="chat-similarity-badge" style={{ color: accent }}>
-            {score.toFixed(2)}
-          </span>
-        </div>
+      <div key={result.problem_id} className="chat-context-card" style={{ borderLeftColor: accentColor }}>
+        <span className="chat-context-label">{result.title ?? `Problem #${result.problem_id}`}</span>
+        <span className="chat-context-score">{score.toFixed(2)}</span>
         <div className="chat-context-text">
-          {result.difficulty} · {
-            typeof result.acceptance_rate === 'number'
-              ? `${(result.acceptance_rate <= 1 ? result.acceptance_rate * 100 : result.acceptance_rate).toFixed(1)}% acceptance`
-              : result.acceptance_rate
-          }
+          {result.difficulty}
+          {typeof result.acceptance_rate === 'number'
+            ? ` · ${(result.acceptance_rate <= 1 ? result.acceptance_rate * 100 : result.acceptance_rate).toFixed(1)}% acceptance`
+            : ''}
         </div>
       </div>
     )
   }
 
+  const isOnlyInitial = messages.length === 1 && !messages[0].isUser
+
   return (
-    <div className="chat-panel">
-      <div className="chat-panel-header">AI Assistant</div>
-      <div id="messages">
+    <aside className="chat">
+      <div className="chat-head">
+        <div className="chat-title">
+          <div className="chat-avatar">🌱</div>
+          <span>Sprout</span>
+        </div>
+        <div className="chat-sub">Your study buddy · knows what you're looking at</div>
+        <div className="chat-status">
+          <span className="pulse" />
+          Watching {context.length > 0 ? `${context.length} problems` : subject === 'math' ? 'math' : 'CS'}
+        </div>
+      </div>
+
+      <div className="chat-body" ref={bodyRef}>
         {messages.map((msg, i) => {
           if (msg.isUser) {
             return (
-              <div key={i} className="message user">
-                <p>{msg.text}</p>
+              <div key={i} className="msg user">
+                {msg.text}
               </div>
             )
           }
 
           return (
-            <div key={i} className="message assistant">
+            <div key={i} className="msg assistant">
               {msg.irQuery && (
-                <div className="chat-ir-pill">
-                  Modified query: <em>{msg.irQuery}</em>
-                </div>
+                <div className="ir-pill">↻ refined: {msg.irQuery}</div>
               )}
-
               {msg.irResults.length > 0 && (
                 <details className="chat-context-section">
                   <summary>
                     Context used ({msg.irResults.length} problem{msg.irResults.length !== 1 ? 's' : ''})
                   </summary>
                   <div className="chat-context-cards">
-                    {msg.irResults.map(r => renderContextCard(r))}
+                    {msg.irResults.map(r => renderResult(r))}
                   </div>
                 </details>
               )}
-
               {msg.irQuery && msg.irResults.length === 0 && (
                 <div className="chat-no-results">
-                  No problems matched closely enough to use as context.
+                  No problems matched closely enough for context.
                 </div>
               )}
-
               {msg.answerText && (
                 <p className="chat-answer">{msg.answerText}</p>
+              )}
+              {isOnlyInitial && i === 0 && (
+                <div className="suggest-chips">
+                  {quickPrompts.map(q => (
+                    <button key={q} className="suggest-chip" onClick={() => void sendMessage(q)}>
+                      ✦ {q}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           )
         })}
 
         {loading && (
-          <div className="loading-indicator visible">
-            <span className="loading-dot" />
-            <span className="loading-dot" />
-            <span className="loading-dot" />
+          <div className="msg assistant">
+            <div className="msg-thinking">
+              <span /><span /><span />
+            </div>
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
-      <div className="chat-bar">
-        <form className="input-row" onSubmit={sendMessage}>
-          <img src={SearchIcon} alt="" />
+      <div className="chat-foot">
+        <div className="chat-quickrow">
+          {quickActions.map(q => (
+            <button key={q} className="quick-chip" onClick={() => void sendMessage(q.replace(/^[^ ]+ /, ''))}>
+              {q}
+            </button>
+          ))}
+        </div>
+        <div className="chat-input-row">
           <input
-            type="text"
-            placeholder="Ask a follow-up question…"
             value={input}
             onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) void sendMessage() }}
+            placeholder="Ask Sprout a follow-up…"
             disabled={loading}
-            autoComplete="off"
           />
-          <button type="submit" disabled={loading}>Send</button>
-        </form>
+          <button
+            className="chat-send"
+            onClick={() => void sendMessage()}
+            disabled={loading || !input.trim()}
+            aria-label="Send"
+          >
+            <Icon name="send" size={16} />
+          </button>
+        </div>
       </div>
-    </div>
+    </aside>
   )
 }
 
