@@ -22,6 +22,12 @@ SIMILARITY_THRESHOLDS = {
     "leetcode": 0.6,
 }
 
+# BERT cosine scores sit in a lower range than TF-IDF/SVD, so we use separate thresholds.
+BERT_SIMILARITY_THRESHOLDS = {
+    "math": 0.3,
+    "leetcode": 0.35,
+}
+
 
 def json_search(query):
     if not query or not query.strip():
@@ -141,7 +147,7 @@ def format_search_result(subject, record, score, doc_top_dims=None):
     raise ValueError("subject must be 'math' or 'cs'")
 
 
-def search_problems(app, subject, query, top_k=5, retrieval_mode="svd"):
+def search_problems(app, subject, query, top_k=5, retrieval_mode="bert"):
     resolved_subject = resolve_subject(subject)
 
     records, vectorizer, docs_compressed, words_compressed, dim_labels = get_retrieval_artifacts(app, resolved_subject)
@@ -163,8 +169,31 @@ def search_problems(app, subject, query, top_k=5, retrieval_mode="svd"):
             if score < threshold:
                 continue
             results.append(format_search_result(resolved_subject, records[document_index], score))
+
+    elif retrieval_mode == "bert":
+        bert_model = app.config.get("BERT_MODEL")
+        embeddings_key = "MATH_BERT_EMBEDDINGS" if resolved_subject == "math" else "LEETCODE_BERT_EMBEDDINGS"
+        bert_embeddings = app.config.get(embeddings_key)
+        if bert_model is None:
+            raise RuntimeError("BERT model not loaded. Install sentence-transformers and restart the server.")
+        if bert_embeddings is None:
+            raise RuntimeError(
+                f"BERT embeddings for '{resolved_subject}' not found. "
+                f"Run: python -m lib.retrieval.{'bert_index' if resolved_subject == 'math' else 'leetcode_bert_index'}"
+            )
+        # BERT works best on natural language — use raw query, not the LaTeX-heavy combined_text
+        query_vec = bert_model.encode([query], normalize_embeddings=True)
+        bert_threshold = BERT_SIMILARITY_THRESHOLDS.get(resolved_subject, 0.3)
+        ranked_matches = rank_by_cosine(query_vec, bert_embeddings, top_k=top_k)
+        query_top_dims = None
+        results = []
+        for document_index, score in ranked_matches:
+            if score < bert_threshold:
+                continue
+            results.append(format_search_result(resolved_subject, records[document_index], score))
+
     else:
-        # SVD (LSA) mode — default
+        # SVD (LSA) mode
         query_tfidf = vectorizer.transform([query_text])
         query_vec = normalize(query_tfidf.dot(words_compressed))
         ranked_matches = rank_by_cosine(query_vec, docs_compressed, top_k=top_k)
@@ -216,9 +245,9 @@ def register_routes(app):
         subject = payload.get("subject", "").strip().lower()
         query = payload.get("query", "").strip()
         top_k = payload.get("top_k", 5)
-        retrieval_mode = payload.get("retrieval_mode", "svd").strip().lower()
-        if retrieval_mode not in ("svd", "tfidf"):
-            retrieval_mode = "svd"
+        retrieval_mode = payload.get("retrieval_mode", "bert").strip().lower()
+        if retrieval_mode not in ("svd", "tfidf", "bert"):
+            retrieval_mode = "bert"
 
         if not subject:
             return jsonify({"error": "Missing 'subject' field."}), 400
