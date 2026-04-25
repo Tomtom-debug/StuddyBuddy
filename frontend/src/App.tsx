@@ -480,7 +480,7 @@ function App(): JSX.Element {
   const [hasSearched, setHasSearched] = useState<boolean>(false)
   const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
-  const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf'>('svd')
+  const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf' | 'bert'>('bert')
   const [tweaks, setTweaks] = useState<Tweaks>({ accent: 'emerald', density: 'cozy', mascot: true, practiceMode: false })
   const [tweaksOpen, setTweaksOpen] = useState<boolean>(false)
 
@@ -503,7 +503,7 @@ function App(): JSX.Element {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
   }, [])
 
-  const runSearch = async (value: string, subj: Subject, mode?: 'svd' | 'tfidf'): Promise<SearchResult[]> => {
+  const runSearch = async (value: string, subj: Subject, mode?: 'svd' | 'tfidf' | 'bert'): Promise<SearchResult[]> => {
     const requestId = latestRequestId.current + 1
     latestRequestId.current = requestId
 
@@ -629,7 +629,7 @@ function App(): JSX.Element {
     setSynthesis(null)
   }
 
-  const handleRetrievalModeChange = (next: 'svd' | 'tfidf'): void => {
+  const handleRetrievalModeChange = (next: 'svd' | 'tfidf' | 'bert'): void => {
     setRetrievalMode(next)
     const trimmed = searchTerm.trim()
     if (trimmed !== '' && hasSearched) {
@@ -689,16 +689,23 @@ function App(): JSX.Element {
           </div>
           <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
             <button
+              className={`subject-btn ${retrievalMode === 'bert' ? 'active' : ''}`}
+              onClick={() => handleRetrievalModeChange('bert')}
+              title="BERT — deep semantic search, understands meaning and synonyms"
+            >
+              BERT
+            </button>
+            <button
               className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
               onClick={() => handleRetrievalModeChange('svd')}
-              title="SVD (Latent Semantic Analysis) — captures semantic meaning"
+              title="SVD (Latent Semantic Analysis) — topic-level semantic matching"
             >
               SVD
             </button>
             <button
               className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
               onClick={() => handleRetrievalModeChange('tfidf')}
-              title="Raw TF-IDF — exact keyword matching"
+              title="TF-IDF — exact keyword matching"
             >
               TF-IDF
             </button>
