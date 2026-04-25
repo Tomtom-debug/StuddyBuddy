@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState, useMemo, useCallback } from 'react'
-import ForceGraph3D from 'react-force-graph-3d'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
 
-// ─── Palette ─────────────────────────────────────────────────────────────────
+// ─── Palette ──────────────────────────────────────────────────────────────────
 
 const COLORS: Record<string, string> = {
   geometry:      '#60a5fa',
@@ -21,6 +21,10 @@ const COLORS: Record<string, string> = {
   struct:        '#6ee7b7',
   other:         '#94a3b8',
 }
+
+const COLOR_OBJ: Record<string, THREE.Color> = Object.fromEntries(
+  Object.entries(COLORS).map(([k, v]) => [k, new THREE.Color(v)])
+)
 
 const MATH_TOPICS = ['geometry', 'number_theory', 'algebra', 'combinatorics', 'series'] as const
 const CS_TOPICS   = ['array', 'graph', 'dp', 'string', 'search', 'struct'] as const
@@ -49,144 +53,183 @@ export interface Universe3DProps {
   onClose: () => void
 }
 
-// ─── Texture helpers ──────────────────────────────────────────────────────────
+// ─── GLSL shaders ─────────────────────────────────────────────────────────────
+//
+// Every node is a gl_PointCoord circle computed in the fragment shader.
+// Nothing is sampled from a texture, so there is zero blurring at any zoom level.
 
-const _haloTexCache: Record<string, THREE.CanvasTexture> = {}
-const _coreTexCache: Record<string, THREE.CanvasTexture> = {}
-const _ringTexCache: Record<string, THREE.CanvasTexture> = {}
+const VERT = /* glsl */`
+attribute float aSize;
+attribute vec3  aColor;
+attribute float aOpacity;
+attribute float aGlow;
 
-function parseHex(hex: string): [number, number, number] {
-  const raw = hex.replace('#', '')
-  const full = raw.length === 3 ? raw.split('').map(c => c + c).join('') : raw
-  const n = parseInt(full, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+varying vec3  vColor;
+varying float vOpacity;
+varying float vGlow;
+
+void main() {
+  vColor   = aColor;
+  vOpacity = aOpacity;
+  vGlow    = aGlow;
+
+  vec4 mv = modelViewMatrix * vec4(position, 1.0);
+  // size attenuation: appears larger when close, smaller when far
+  gl_PointSize = clamp(aSize * 800.0 / -mv.z, 1.5, 60.0);
+  gl_Position  = projectionMatrix * mv;
+}
+`
+
+const FRAG = /* glsl */`
+varying vec3  vColor;
+varying float vOpacity;
+varying float vGlow;
+
+void main() {
+  vec2  uv   = gl_PointCoord * 2.0 - 1.0;
+  float dist = length(uv);
+  if (dist > 1.0) discard;
+
+  // Crisp filled circle — 1-2px soft edge only for antialiasing, nothing more
+  float circle = 1.0 - smoothstep(0.78, 1.0, dist);
+
+  // Subtle spherical shading: slightly brighter centre
+  float shine  = (1.0 - smoothstep(0.0, 0.55, dist)) * 0.28;
+
+  vec3  color = mix(vColor, vec3(1.0), shine);
+  float alpha = circle * vOpacity;
+
+  // Thin selection ring — only drawn when selected (vGlow > 1)
+  float ring = smoothstep(0.66, 0.72, dist)
+             * (1.0 - smoothstep(0.82, 0.92, dist))
+             * clamp(vGlow - 1.0, 0.0, 1.0);
+  alpha = max(alpha, ring * 0.9 * vOpacity);
+  color = mix(color, vec3(1.0), ring * 0.75);
+
+  gl_FragColor = vec4(color, alpha);
+}
+`
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function nodeBaseSize(n: UniverseNode): number {
+  if (n.type === 'cs') {
+    if (n.difficulty === 'Hard')   return 11
+    if (n.difficulty === 'Medium') return 8
+    return 6
+  }
+  return 7
 }
 
-function toHex(n: number): string {
-  const clamped = Math.max(0, Math.min(255, Math.round(n)))
-  return clamped.toString(16).padStart(2, '0')
+type FlyTo = {
+  target: THREE.Vector3; lookAt: THREE.Vector3
+  start: THREE.Vector3;  startLook: THREE.Vector3
+  t0: number; dur: number
 }
 
-function brightenHex(hex: string, amount = 0.2): string {
-  const [r, g, b] = parseHex(hex)
-  const nr = r + (255 - r) * amount
-  const ng = g + (255 - g) * amount
-  const nb = b + (255 - b) * amount
-  return `#${toHex(nr)}${toHex(ng)}${toHex(nb)}`
+type ThreeCtx = {
+  renderer: THREE.WebGLRenderer
+  scene:    THREE.Scene
+  camera:   THREE.PerspectiveCamera
+  controls: OrbitControls
+  points:   THREE.Points
+  geo:      THREE.BufferGeometry
+  flyTo:    FlyTo | null
+  raf:      number
 }
 
-function finalizeTex(tex: THREE.CanvasTexture): THREE.CanvasTexture {
-  tex.minFilter = THREE.LinearFilter
-  tex.magFilter = THREE.LinearFilter
-  tex.generateMipmaps = false
-  tex.needsUpdate = true
-  return tex
+// ── Screen-space hit detection ─────────────────────────────────────────────
+// Projects every node to CSS pixel space and matches the cursor accurately.
+// Two-pass strategy:
+//   Pass 1 — cursor within the node's actual rendered pixel circle + prefer
+//             the frontmost node (smallest NDC-z) when several overlap.
+//   Pass 2 — fallback: nearest node within 18 px (catches very-small nodes
+//             when the camera is far away).
+// This is zoom-level-independent and always selects the visually correct node.
+const _v = new THREE.Vector3()
+function screenHit(
+  nodes: UniverseNode[],
+  camera: THREE.PerspectiveCamera,
+  canvas: HTMLCanvasElement,
+  clientX: number,
+  clientY: number,
+): UniverseNode | null {
+  const rect  = canvas.getBoundingClientRect()
+  const mx    = clientX - rect.left
+  const my    = clientY - rect.top
+  const w     = rect.width
+  const h     = rect.height
+  const dpr   = window.devicePixelRatio || 1
+  const camX  = camera.position.x
+  const camY  = camera.position.y
+  const camZ  = camera.position.z
+
+  let best: UniverseNode | null = null
+  let bestNdcZ = Infinity  // smaller NDC-z = closer to camera
+
+  // Pass 1: accurate circle-based hit with depth ordering
+  for (const n of nodes) {
+    _v.set(n.x * S, n.y * S, n.z * S)
+    _v.project(camera)
+    if (_v.z >= 1 || _v.z < -1) continue  // clipped or behind camera
+
+    const sx = (_v.x + 1) * 0.5 * w
+    const sy = (1 - _v.y) * 0.5 * h
+    const dx = sx - mx
+    const dy = sy - my
+    const screenDist = Math.sqrt(dx * dx + dy * dy)
+
+    // Replicate shader size: aSize * 800 / camDist, clamped [1.5, 60]
+    const ex = n.x * S - camX
+    const ey = n.y * S - camY
+    const ez = n.z * S - camZ
+    const camDist = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1
+    const cssRadius = Math.max(Math.min(nodeBaseSize(n) * 800 / camDist, 60), 1.5) / dpr / 2
+
+    if (screenDist < cssRadius + 4 && _v.z < bestNdcZ) {
+      bestNdcZ = _v.z
+      best = n
+    }
+  }
+  if (best) return best
+
+  // Pass 2 fallback: nearest node within 18 CSS pixels
+  let bestSq = 18 * 18
+  for (const n of nodes) {
+    _v.set(n.x * S, n.y * S, n.z * S)
+    _v.project(camera)
+    if (_v.z >= 1 || _v.z < -1) continue
+    const sx  = (_v.x + 1) * 0.5 * w
+    const sy  = (1 - _v.y) * 0.5 * h
+    const dSq = (sx - mx) ** 2 + (sy - my) ** 2
+    if (dSq < bestSq) { bestSq = dSq; best = n }
+  }
+  return best
 }
 
-function getHaloTex(hex: string): THREE.CanvasTexture {
-  if (_haloTexCache[hex]) return _haloTexCache[hex]
-  const sz = 224
-  const cv = document.createElement('canvas')
-  cv.width = sz
-  cv.height = sz
-  const ctx = cv.getContext('2d')!
-  const r = parseInt(hex.slice(1, 3), 16)
-  const g = parseInt(hex.slice(3, 5), 16)
-  const b = parseInt(hex.slice(5, 7), 16)
-  const grad = ctx.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2)
-  grad.addColorStop(0,    `rgba(${r},${g},${b},1)`)
-  grad.addColorStop(0.12, `rgba(${r},${g},${b},0.58)`)
-  grad.addColorStop(0.28, `rgba(${r},${g},${b},0.17)`)
-  grad.addColorStop(1,    `rgba(${r},${g},${b},0)`)
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, sz, sz)
-  const tex = finalizeTex(new THREE.CanvasTexture(cv))
-  _haloTexCache[hex] = tex
-  return tex
-}
-
-function getCoreTex(hex: string): THREE.CanvasTexture {
-  if (_coreTexCache[hex]) return _coreTexCache[hex]
-  const sz = 192
-  const cv = document.createElement('canvas')
-  cv.width = sz
-  cv.height = sz
-  const ctx = cv.getContext('2d')!
-  const [r, g, b] = parseHex(hex)
-  const grad = ctx.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2)
-  grad.addColorStop(0,    `rgba(${r},${g},${b},1)`)
-  grad.addColorStop(0.45, `rgba(${r},${g},${b},1)`)
-  grad.addColorStop(0.72, `rgba(${r},${g},${b},0.55)`)
-  grad.addColorStop(0.9,  `rgba(${r},${g},${b},0.1)`)
-  grad.addColorStop(1,    `rgba(${r},${g},${b},0)`)
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, sz, sz)
-  const tex = finalizeTex(new THREE.CanvasTexture(cv))
-  _coreTexCache[hex] = tex
-  return tex
-}
-
-function getRingTex(hex: string): THREE.CanvasTexture {
-  if (_ringTexCache[hex]) return _ringTexCache[hex]
-  const sz = 224
-  const cv = document.createElement('canvas')
-  cv.width = sz
-  cv.height = sz
-  const ctx = cv.getContext('2d')!
-  const [r, g, b] = parseHex(hex)
-  const grad = ctx.createRadialGradient(sz / 2, sz / 2, 0, sz / 2, sz / 2, sz / 2)
-  grad.addColorStop(0,    `rgba(${r},${g},${b},0)`)
-  grad.addColorStop(0.56, `rgba(${r},${g},${b},0)`)
-  grad.addColorStop(0.72, `rgba(${r},${g},${b},0.95)`)
-  grad.addColorStop(0.84, `rgba(${r},${g},${b},0.5)`)
-  grad.addColorStop(0.94, `rgba(${r},${g},${b},0)`)
-  grad.addColorStop(1,    `rgba(${r},${g},${b},0)`)
-  ctx.fillStyle = grad
-  ctx.fillRect(0, 0, sz, sz)
-  const tex = finalizeTex(new THREE.CanvasTexture(cv))
-  _ringTexCache[hex] = tex
-  return tex
-}
-
-// ─── Per-node ref ─────────────────────────────────────────────────────────────
-
-interface NodeRef {
-  group:    THREE.Group
-  core:     THREE.Sprite
-  coreMat:  THREE.SpriteMaterial
-  halo:     THREE.Sprite
-  haloMat:  THREE.SpriteMaterial
-  ring:     THREE.Sprite
-  ringMat:  THREE.SpriteMaterial
-  baseSize: number
-  color:    string
-  pulseSeed: number
-}
+// Multiply backend PCA positions by this factor so nodes aren't crammed together.
+// The backend compresses everything into [-150,+150]; with 1600+ nodes that means
+// ~25-unit average spacing, which causes overlapping circles even when zoomed in.
+// At scale 3 the average gap becomes ~75 units — visually separable at any zoom.
+const S = 5
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function Universe3D({ subject, highlightIds, onFindSimilar, onClose }: Universe3DProps) {
-  const graphRef  = useRef<any>(null)
-  const nodeRefs  = useRef<Map<string, NodeRef>>(new Map())
-  const sceneObjs = useRef<THREE.Object3D[]>([])
+  const mountRef  = useRef<HTMLDivElement>(null)
+  const ctxRef    = useRef<ThreeCtx | null>(null)
+  const nodesRef  = useRef<UniverseNode[]>([])
+  const dnRef     = useRef<{ x: number; y: number } | null>(null) // mousedown pos
 
   const [nodes,    setNodes]    = useState<UniverseNode[]>([])
   const [loading,  setLoading]  = useState(true)
   const [hovered,  setHovered]  = useState<UniverseNode | null>(null)
   const [selected, setSelected] = useState<UniverseNode | null>(null)
-  const [viewport, setViewport] = useState(() => ({
-    width: typeof window !== 'undefined' ? window.innerWidth : 1280,
-    height: typeof window !== 'undefined' ? window.innerHeight : 720,
-  }))
+  const [cursorXY, setCursorXY] = useState({ x: 0, y: 0 })
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const onResize = () => setViewport({ width: window.innerWidth, height: window.innerHeight })
-    window.addEventListener('resize', onResize)
-    return () => window.removeEventListener('resize', onResize)
-  }, [])
+  useEffect(() => { nodesRef.current = nodes }, [nodes])
 
-  // ── Fetch universe data ───────────────────────────────────────────────────
+  // ── Fetch ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     fetch('/api/universe')
       .then(r => r.json())
@@ -194,272 +237,260 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
       .catch(() => setLoading(false))
   }, [])
 
-  // ── Graph data — pin every node at its PCA position ───────────────────────
-  const graphData = useMemo(() => ({
-    nodes: nodes.map(n => ({ ...n, fx: n.x, fy: n.y, fz: n.z })),
-    links: [],
-  }), [nodes])
-
-  const tooltipPreview = useCallback((node: UniverseNode) => {
-    const text = node.preview_text?.trim() || node.preview.trim()
-    return text.length > 120 ? `${text.slice(0, 120).trimEnd()}…` : text
-  }, [])
-
-  const panelBody = useCallback((node: UniverseNode) => {
-    return node.full_text?.trim() || node.preview.trim()
-  }, [])
-
-  // ── Create node sprite group once ─────────────────────────────────────────
-  const nodeThreeObject = useCallback((raw: object) => {
-    const n = raw as UniverseNode
-    const color    = COLORS[n.topic] ?? '#94a3b8'
-    const baseSize =
-      n.type === 'cs'
-        ? (n.difficulty === 'Hard' ? 16 : n.difficulty === 'Medium' ? 11 : 8)
-        : 10
-
-    const haloMat = new THREE.SpriteMaterial({
-      map:         getHaloTex(color),
-      transparent: true,
-      opacity:     0.26,
-      blending:    THREE.NormalBlending,
-      alphaTest:   0.02,
-      depthWrite:  false,
-    })
-    const halo = new THREE.Sprite(haloMat)
-    halo.scale.setScalar(baseSize * 1.2)
-
-    const coreMat = new THREE.SpriteMaterial({
-      map:         getCoreTex(color),
-      transparent: true,
-      opacity:     1,
-      blending:    THREE.NormalBlending,
-      alphaTest:   0.05,
-      depthWrite:  false,
-    })
-    const core = new THREE.Sprite(coreMat)
-    core.scale.setScalar(baseSize * 0.34)
-
-    const ringMat = new THREE.SpriteMaterial({
-      map:         getRingTex(brightenHex(color, 0.42)),
-      transparent: true,
-      opacity:     0,
-      blending:    THREE.AdditiveBlending,
-      depthWrite:  false,
-    })
-    const ring = new THREE.Sprite(ringMat)
-    ring.visible = false
-    ring.scale.setScalar(baseSize * 2.6)
-
-    const group = new THREE.Group()
-    group.add(halo)
-    group.add(core)
-    group.add(ring)
-
-    nodeRefs.current.set(n.id, {
-      group, core, coreMat, halo, haloMat, ring, ringMat, baseSize, color, pulseSeed: Math.random() * 1000,
-    })
-    return group
-  }, [])
-
-  // ── Highlight / selection effect ──────────────────────────────────────────
+  // ── Three.js bootstrap ────────────────────────────────────────────────────
   useEffect(() => {
-    const hasSearch = highlightIds.size > 0
-    const selectedId = selected?.id
+    if (loading || !mountRef.current || nodes.length === 0) return
+    const el = mountRef.current
 
-    nodeRefs.current.forEach(({ core, coreMat, halo, haloMat, ring, ringMat, baseSize, color }, id) => {
-      const isSearchHit = highlightIds.has(id)
-      const isSelected = selectedId === id
+    // Renderer — full device pixel ratio, antialiased
+    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    renderer.setPixelRatio(window.devicePixelRatio)
+    renderer.setSize(el.clientWidth, el.clientHeight)
+    renderer.setClearColor(0x000814, 1)
+    el.appendChild(renderer.domElement)
 
-      let baseColor = color
-      let coreOpacity = 1
-      let haloOpacity = 0.26
-      let coreScale = baseSize * 0.34
-      let haloScale = baseSize * 1.2
-      let ringVisible = false
-      let ringScale = baseSize * 2.6
-      let ringOpacity = 0.55
+    const scene  = new THREE.Scene()
+    const camera = new THREE.PerspectiveCamera(60, el.clientWidth / el.clientHeight, 0.5, 20000)
+    camera.position.set(0, 0, 2800)
 
-      if (hasSearch) {
-        if (isSearchHit) {
-          baseColor = brightenHex(color, 0.12)
-          coreOpacity = 1
-          haloOpacity = 0.4
-          coreScale *= 1.1
-          haloScale *= 1.2
-        } else {
-          coreOpacity = 0.25
-          haloOpacity = 0.04
-        }
-      }
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.enableDamping  = true
+    controls.dampingFactor  = 0.06
+    controls.minDistance    = 5
+    controls.maxDistance    = 20000
+    controls.zoomToCursor   = true
+    controls.screenSpacePanning = true
 
-      if (selectedId) {
-        if (isSelected) {
-          baseColor = brightenHex(color, 0.28)
-          coreOpacity = 1
-          haloOpacity = 0.58
-          coreScale = baseSize * 0.95
-          haloScale = baseSize * 2.2
-          ringVisible = true
-          ringScale = baseSize * 2.6
-          ringOpacity = 0.62
-        } else {
-          coreOpacity *= 0.28
-          haloOpacity *= 0.22
-          coreScale *= 0.9
-          haloScale *= 0.9
-        }
-      }
-
-      coreMat.map = getCoreTex(baseColor)
-      haloMat.map = getHaloTex(baseColor)
-      ringMat.map = getRingTex(brightenHex(baseColor, 0.3))
-
-      coreMat.opacity = coreOpacity
-      haloMat.opacity = haloOpacity
-      ringMat.opacity = ringVisible ? ringOpacity : 0
-      coreMat.needsUpdate = true
-      haloMat.needsUpdate = true
-      ringMat.needsUpdate = true
-
-      core.scale.setScalar(coreScale)
-      halo.scale.setScalar(haloScale)
-      ring.visible = ringVisible
-      ring.scale.setScalar(ringScale)
-    })
-  }, [highlightIds, selected])
-
-  // ── Selected-ring pulse ────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!selected) return
-    let raf = 0
-
-    const animate = () => {
-      const t = performance.now() * 0.004
-      nodeRefs.current.forEach((ref, id) => {
-        if (id !== selected.id || !ref.ring.visible) return
-        const pulse = 1 + 0.12 * Math.sin(t + ref.pulseSeed)
-        ref.ring.scale.setScalar(ref.baseSize * 2.6 * pulse)
-        ref.ringMat.opacity = 0.46 + 0.12 * Math.sin(t * 1.3 + ref.pulseSeed)
-      })
-      raf = requestAnimationFrame(animate)
-    }
-
-    raf = requestAnimationFrame(animate)
-    return () => cancelAnimationFrame(raf)
-  }, [selected])
-
-  // ── Scene setup: stars, nebulas, divider ─────────────────────────────────
-  useEffect(() => {
-    if (loading || !graphRef.current) return
-    const scene  = graphRef.current.scene() as THREE.Scene
-    const extras: THREE.Object3D[] = []
-
-    // Fog (lighter, so node colors stay crisp)
-    scene.fog = new THREE.FogExp2(0x000814, 0.00016)
-
-    // Stars
-    const STAR_N  = 5000
-    const starPos = new Float32Array(STAR_N * 3)
-    for (let i = 0; i < STAR_N * 3; i++) starPos[i] = (Math.random() - 0.5) * 5000
+    // ── Star field ──────────────────────────────────────────────────────────
+    const starPos = new Float32Array(6000 * 3)
+    for (let i = 0; i < starPos.length; i++) starPos[i] = (Math.random() - 0.5) * 28000
     const starGeo = new THREE.BufferGeometry()
     starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3))
-    const stars = new THREE.Points(starGeo,
-      new THREE.PointsMaterial({ color: 0xffffff, size: 0.9, sizeAttenuation: true, transparent: true, opacity: 0.54 }))
-    scene.add(stars); extras.push(stars)
+    scene.add(new THREE.Points(starGeo,
+      new THREE.PointsMaterial({ color: 0xffffff, size: 0.8, sizeAttenuation: true, transparent: true, opacity: 0.55 })
+    ))
 
-    // Topic nebulas
-    const centroids: Record<string, { x: number; y: number; z: number; n: number }> = {}
-    nodes.forEach(nd => {
-      if (!centroids[nd.topic]) centroids[nd.topic] = { x: 0, y: 0, z: 0, n: 0 }
-      centroids[nd.topic].x += nd.x; centroids[nd.topic].y += nd.y
-      centroids[nd.topic].z += nd.z; centroids[nd.topic].n++
-    })
-    Object.entries(centroids).forEach(([topic, c]) => {
-      const hex    = COLORS[topic] ?? '#888888'
-      const nebula = new THREE.Sprite(new THREE.SpriteMaterial({
-        map: getHaloTex(hex), transparent: true, opacity: 0.012,
-        blending: THREE.AdditiveBlending, depthWrite: false,
-      }))
-      nebula.position.set(c.x / c.n, c.y / c.n, c.z / c.n)
-      nebula.scale.setScalar(220)
-      scene.add(nebula); extras.push(nebula)
-    })
-
-    // Galaxy-arm divider dust
-    const DIV_N  = 600
-    const divPos = new Float32Array(DIV_N * 3)
-    for (let i = 0; i < DIV_N; i++) {
-      divPos[i * 3]     = (Math.random() - 0.5) * 40
-      divPos[i * 3 + 1] = (Math.random() - 0.5) * 700
-      divPos[i * 3 + 2] = (Math.random() - 0.5) * 700
+    // ── Galaxy-arm divider ──────────────────────────────────────────────────
+    const divPos = new Float32Array(800 * 3)
+    for (let i = 0; i < 800; i++) {
+      divPos[i * 3]     = (Math.random() - 0.5) * 200
+      divPos[i * 3 + 1] = (Math.random() - 0.5) * 4000
+      divPos[i * 3 + 2] = (Math.random() - 0.5) * 4000
     }
     const divGeo = new THREE.BufferGeometry()
     divGeo.setAttribute('position', new THREE.BufferAttribute(divPos, 3))
-    const divider = new THREE.Points(divGeo,
-      new THREE.PointsMaterial({ color: 0x4466aa, size: 0.9, transparent: true, opacity: 0.05 }))
-    scene.add(divider); extras.push(divider)
+    scene.add(new THREE.Points(divGeo,
+      new THREE.PointsMaterial({ color: 0x4466aa, size: 1.0, transparent: true, opacity: 0.07 })
+    ))
 
-    sceneObjs.current = extras
+    // ── Problem nodes (single draw call, shader-computed circles) ───────────
+    const N   = nodes.length
+    const pos = new Float32Array(N * 3)
+    const col = new Float32Array(N * 3)
+    const sz  = new Float32Array(N)
+    const op  = new Float32Array(N)
+    const gl  = new Float32Array(N)
+
+    nodes.forEach((n, i) => {
+      pos[i * 3]     = n.x * S
+      pos[i * 3 + 1] = n.y * S
+      pos[i * 3 + 2] = n.z * S
+
+      const c = COLOR_OBJ[n.topic] ?? COLOR_OBJ['other']
+      col[i * 3]     = c.r
+      col[i * 3 + 1] = c.g
+      col[i * 3 + 2] = c.b
+
+      sz[i] = nodeBaseSize(n)
+      op[i] = 1.0
+      gl[i] = 1.0
+    })
+
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+    geo.setAttribute('aColor',   new THREE.BufferAttribute(col, 3))
+    geo.setAttribute('aSize',    new THREE.BufferAttribute(sz,  1))
+    geo.setAttribute('aOpacity', new THREE.BufferAttribute(op,  1))
+    geo.setAttribute('aGlow',    new THREE.BufferAttribute(gl,  1))
+
+    const mat = new THREE.ShaderMaterial({
+      vertexShader:   VERT,
+      fragmentShader: FRAG,
+      transparent:    true,
+      depthWrite:     false,
+    })
+    const points = new THREE.Points(geo, mat)
+    scene.add(points)
+
+    // ── Render loop ─────────────────────────────────────────────────────────
+    const ctx: ThreeCtx = { renderer, scene, camera, controls, points, geo, flyTo: null, raf: 0 }
+    ctxRef.current = ctx
+
+    const animate = (now: number) => {
+      ctx.raf = requestAnimationFrame(animate)
+      controls.update()
+
+      // Smooth camera flyto
+      if (ctx.flyTo) {
+        const { target, lookAt, start, startLook, t0, dur } = ctx.flyTo
+        const t = Math.min((now - t0) / dur, 1)
+        const e = 1 - Math.pow(1 - t, 3) // cubic ease-out
+        camera.position.lerpVectors(start, target, e)
+        controls.target.lerpVectors(startLook, lookAt, e)
+        if (t >= 1) ctx.flyTo = null
+      }
+
+      renderer.render(scene, camera)
+    }
+    ctx.raf = requestAnimationFrame(animate)
 
     // Warp-in intro
-    graphRef.current.cameraPosition({ x: 0, y: 0, z: 2800 }, { x: 0, y: 0, z: 0 }, 0)
-    setTimeout(() => {
-      graphRef.current?.cameraPosition({ x: 0, y: 80, z: 700 }, { x: 0, y: 0, z: 0 }, 2200)
-    }, 80)
+    setTimeout(() => flyToPos(ctx, 0, 400, 3500, 0, 0, 0, 2200), 120)
+
+    // ── Resize ──────────────────────────────────────────────────────────────
+    const onResize = () => {
+      const w = el.clientWidth, h = el.clientHeight
+      renderer.setSize(w, h)
+      camera.aspect = w / h
+      camera.updateProjectionMatrix()
+    }
+    window.addEventListener('resize', onResize)
 
     return () => {
-      extras.forEach(obj => {
-        scene.remove(obj)
-        if ('geometry' in obj) (obj as THREE.Points).geometry?.dispose()
-        if ('material' in obj) {
-          const m = (obj as THREE.Mesh).material
-          Array.isArray(m) ? m.forEach(x => x.dispose()) : (m as THREE.Material).dispose()
-        }
-      })
-      scene.fog = null
+      cancelAnimationFrame(ctx.raf)
+      window.removeEventListener('resize', onResize)
+      renderer.dispose()
+      geo.dispose()
+      mat.dispose()
+      starGeo.dispose()
+      divGeo.dispose()
+      if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement)
+      ctxRef.current = null
     }
   }, [loading, nodes])
 
-  // ── Fly camera to search results ──────────────────────────────────────────
+  // ── Sync highlight / selection → shader attributes ────────────────────────
   useEffect(() => {
-    if (!graphRef.current || highlightIds.size === 0 || nodes.length === 0) return
+    const ctx = ctxRef.current
+    if (!ctx || nodes.length === 0) return
+
+    const opAttr  = ctx.geo.getAttribute('aOpacity') as THREE.BufferAttribute
+    const glAttr  = ctx.geo.getAttribute('aGlow')    as THREE.BufferAttribute
+    const colAttr = ctx.geo.getAttribute('aColor')   as THREE.BufferAttribute
+
+    const hasSearch  = highlightIds.size > 0
+    const selId      = selected?.id
+
+    nodes.forEach((n, i) => {
+      const isHit = highlightIds.has(n.id)
+      const isSel = n.id === selId
+      const base  = COLOR_OBJ[n.topic] ?? COLOR_OBJ['other']
+
+      let r = base.r, g = base.g, b = base.b
+      let opacity = 1.0
+      let glow    = 1.0
+
+      if (hasSearch) {
+        if (isHit) {
+          // Brighten hit nodes
+          r = Math.min(r + 0.18, 1); g = Math.min(g + 0.18, 1); b = Math.min(b + 0.18, 1)
+          glow    = 1.9
+        } else {
+          opacity = 0.10
+          glow    = 0.15
+        }
+      }
+
+      if (selId) {
+        if (isSel) {
+          r = Math.min(r + 0.35, 1); g = Math.min(g + 0.35, 1); b = Math.min(b + 0.35, 1)
+          opacity = 1.0
+          glow    = 2.8   // glow > 1 triggers the selection ring in FRAG shader
+        } else if (!isHit) {
+          opacity *= 0.18
+          glow    *= 0.18
+        }
+      }
+
+      opAttr.setX(i, opacity)
+      glAttr.setX(i, glow)
+      colAttr.setXYZ(i, r, g, b)
+    })
+
+    opAttr.needsUpdate  = true
+    glAttr.needsUpdate  = true
+    colAttr.needsUpdate = true
+  }, [highlightIds, selected, nodes])
+
+  // ── Camera flyto on new search results ────────────────────────────────────
+  useEffect(() => {
+    const ctx = ctxRef.current
+    if (!ctx || highlightIds.size === 0 || nodes.length === 0) return
     const matched = nodes.filter(n => highlightIds.has(n.id))
-    if (matched.length === 0) return
-    const cx = matched.reduce((s, n) => s + n.x, 0) / matched.length
-    const cy = matched.reduce((s, n) => s + n.y, 0) / matched.length
-    const cz = matched.reduce((s, n) => s + n.z, 0) / matched.length
-    graphRef.current.cameraPosition(
-      { x: cx, y: cy + 25, z: cz + 260 },
-      { x: cx, y: cy,      z: cz },
-      1400,
-    )
+    if (!matched.length) return
+    const cx = matched.reduce((s, n) => s + n.x * S, 0) / matched.length
+    const cy = matched.reduce((s, n) => s + n.y * S, 0) / matched.length
+    const cz = matched.reduce((s, n) => s + n.z * S, 0) / matched.length
+    flyToPos(ctx, cx, cy + 60, cz + 800, cx, cy, cz, 1400)
   }, [highlightIds, nodes])
 
-  const handleNodeClick = useCallback((raw: object) => {
-    const node = raw as UniverseNode
+  // ── FlyTo ─────────────────────────────────────────────────────────────────
+  function flyToPos(
+    ctx: ThreeCtx,
+    px: number, py: number, pz: number,
+    lx: number, ly: number, lz: number,
+    dur = 900,
+  ) {
+    ctx.flyTo = {
+      target:    new THREE.Vector3(px, py, pz),
+      lookAt:    new THREE.Vector3(lx, ly, lz),
+      start:     ctx.camera.position.clone(),
+      startLook: ctx.controls.target.clone(),
+      t0:        performance.now(),
+      dur,
+    }
+  }
+
+  // ── Hover ─────────────────────────────────────────────────────────────────
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    const ctx = ctxRef.current
+    if (!ctx || nodesRef.current.length === 0) return
+    setCursorXY({ x: e.clientX, y: e.clientY })
+    const node = screenHit(nodesRef.current, ctx.camera, ctx.renderer.domElement, e.clientX, e.clientY)
+    setHovered(node)
+    document.body.style.cursor = node ? 'pointer' : 'default'
+  }, [])
+
+  useEffect(() => () => { document.body.style.cursor = 'default' }, [])
+
+  // ── Click (distinguish from drag) ────────────────────────────────────────
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    dnRef.current = { x: e.clientX, y: e.clientY }
+  }, [])
+
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    if (dnRef.current) {
+      const dx = e.clientX - dnRef.current.x
+      const dy = e.clientY - dnRef.current.y
+      if (dx * dx + dy * dy > 64) return   // was a drag, not a click (>8px)
+    }
+    const ctx = ctxRef.current
+    if (!ctx || nodesRef.current.length === 0) return
+    const node = screenHit(nodesRef.current, ctx.camera, ctx.renderer.domElement, e.clientX, e.clientY)
+    if (!node) { setSelected(null); return }
     setSelected(prev => {
       const next = prev?.id === node.id ? null : node
-      if (next && graphRef.current) {
-        graphRef.current.cameraPosition(
-          { x: next.x, y: next.y + 20, z: next.z + 220 },
-          { x: next.x, y: next.y,      z: next.z },
-          900,
-        )
-      }
+      if (next) flyToPos(ctx, next.x*S, next.y*S + 5, next.z*S + 50, next.x*S, next.y*S, next.z*S, 900)
       return next
     })
   }, [])
-  const handleNodeHover = useCallback((raw: object | null) => {
-    setHovered(raw ? raw as UniverseNode : null)
-    document.body.style.cursor = raw ? 'pointer' : 'default'
+
+  const tooltipText = useCallback((node: UniverseNode) => {
+    const t = (node.preview_text ?? node.preview).trim()
+    return t.length > 120 ? t.slice(0, 120).trimEnd() + '…' : t
   }, [])
 
-  useEffect(() => {
-    return () => { document.body.style.cursor = 'default' }
-  }, [])
-
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div className="uni-overlay">
       <div className="uni-loading">
@@ -475,23 +506,23 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
   return (
     <div className="uni-overlay">
 
-      {/* ── Top bar ─────────────────────────────────────────────────────── */}
+      {/* ── Top bar ───────────────────────────────────────────────────────── */}
       <div className="uni-topbar">
         <div className="uni-topbar-left">
           <span className="uni-brand">◉ Problem Multiverse</span>
           <span className="uni-stats">{mathCount} math · {csCount} cs · {nodes.length} total</span>
         </div>
         <div className="uni-topbar-right">
-          <span className="uni-hint">Drag to orbit · Scroll to zoom · Click a node</span>
+          <span className="uni-hint">Drag to orbit · Scroll to zoom · Click a star</span>
           <button className="uni-close-btn" onClick={onClose}>✕ Exit</button>
         </div>
       </div>
 
-      {/* ── Galaxy arm labels ────────────────────────────────────────────── */}
+      {/* ── Galaxy arm labels ─────────────────────────────────────────────── */}
       <div className="uni-arm-label uni-arm-left">⟵ MATHEMATICS</div>
       <div className="uni-arm-label uni-arm-right">COMPUTER SCIENCE ⟶</div>
 
-      {/* ── Legend ──────────────────────────────────────────────────────── */}
+      {/* ── Legend ────────────────────────────────────────────────────────── */}
       <div className="uni-legend">
         <div className="uni-legend-col">
           <div className="uni-legend-head">∑ Math</div>
@@ -513,35 +544,43 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
         </div>
       </div>
 
-      {/* ── Search result badge ──────────────────────────────────────────── */}
+      {/* ── Search badge ──────────────────────────────────────────────────── */}
       {highlightIds.size > 0 && (
         <div className="uni-search-badge">
           ✦ {highlightIds.size} {subject === 'math' ? 'math' : 'CS'} problems matched
         </div>
       )}
 
-      {/* ── Hover tooltip ───────────────────────────────────────────────── */}
+      {/* ── WebGL canvas ──────────────────────────────────────────────────── */}
+      <div
+        ref={mountRef}
+        style={{ position: 'absolute', inset: 0, zIndex: 0 }}
+        onMouseMove={handleMouseMove}
+        onMouseDown={handleMouseDown}
+        onClick={handleClick}
+      />
+
+      {/* ── Hover tooltip ─────────────────────────────────────────────────── */}
       {hovered && !selected && (
-        <div className="uni-tooltip">
+        <div
+          className="uni-tooltip"
+          style={{ position: 'fixed', left: cursorXY.x + 18, top: cursorXY.y - 10, pointerEvents: 'none' }}
+        >
           <div className="uni-tt-type" style={{ color: COLORS[hovered.topic] }}>
             {hovered.type === 'math' ? '∑ Math' : '{ } CS'} · {hovered.topic.replace('_', ' ')}
           </div>
-          <div className="uni-tt-title">
-            {hovered.title ?? `Problem #${hovered.problem_id}`}
-          </div>
+          <div className="uni-tt-title">{hovered.title ?? `Problem #${hovered.problem_id}`}</div>
           <div className="uni-tt-preview">
-            <TextRenderer text={tooltipPreview(hovered)} />
+            <TextRenderer text={tooltipText(hovered)} />
           </div>
           {hovered.difficulty && (
-            <span className={`uni-tt-diff diff-${hovered.difficulty.toLowerCase()}`}>
-              {hovered.difficulty}
-            </span>
+            <span className={`uni-tt-diff diff-${hovered.difficulty.toLowerCase()}`}>{hovered.difficulty}</span>
           )}
           <div className="uni-tt-cta">Click to open →</div>
         </div>
       )}
 
-      {/* ── Selected node panel ─────────────────────────────────────────── */}
+      {/* ── Selected node panel ───────────────────────────────────────────── */}
       {selected && (
         <div className="uni-panel">
           <button className="uni-panel-close" onClick={() => setSelected(null)}>✕</button>
@@ -552,16 +591,13 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
             {selected.title ?? `Problem #${selected.problem_id}`}
           </div>
           {selected.difficulty && (
-            <span className={`uni-panel-diff diff-${selected.difficulty.toLowerCase()}`}>
-              {selected.difficulty}
-            </span>
+            <span className={`uni-panel-diff diff-${selected.difficulty.toLowerCase()}`}>{selected.difficulty}</span>
           )}
           <div className="uni-panel-preview">
-            {selected.type === 'math' ? (
-              <MathRenderer text={panelBody(selected)} />
-            ) : (
-              <TextRenderer text={panelBody(selected)} />
-            )}
+            {selected.type === 'math'
+              ? <MathRenderer text={(selected.full_text ?? selected.preview).trim()} />
+              : <TextRenderer  text={(selected.full_text ?? selected.preview).trim()} />
+            }
           </div>
           <div className="uni-panel-actions">
             {selected.type === 'cs' && selected.url && (
@@ -575,24 +611,6 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
           </div>
         </div>
       )}
-
-      {/* ── 3-D Canvas ──────────────────────────────────────────────────── */}
-      <ForceGraph3D
-        ref={graphRef}
-        graphData={graphData}
-        backgroundColor="#000814"
-        nodeThreeObject={nodeThreeObject}
-        nodeThreeObjectExtend={false}
-        onNodeClick={handleNodeClick}
-        onNodeHover={handleNodeHover}
-        enableNodeDrag={false}
-        cooldownTicks={0}
-        d3AlphaMin={1}
-        showNavInfo={false}
-        width={viewport.width}
-        height={viewport.height}
-        nodeLabel=""
-      />
     </div>
   )
 }
