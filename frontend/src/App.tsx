@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import './App.css'
 import { Icon } from './icons'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
+import { MathBackground } from './MathBackground'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
 
 // ════════════════════════════════════════════════════════
@@ -448,21 +450,6 @@ function Concepts({ dims }: { dims: SvdDim[] }): JSX.Element {
 // Tweaks
 // ════════════════════════════════════════════════════════
 
-const PALETTES = {
-  emerald: { accent: '#059669', accentInk: '#064e3b', accentSoft: '#d1f0e2', paper: '#f4f9f6', paper2: '#eaf3ee', line: '#d8e7df', line2: '#e7f0eb' },
-  apricot: { accent: '#f59e0b', accentInk: '#78350f', accentSoft: '#fef3c7', paper: '#fdf9f3', paper2: '#f7eedf', line: '#ead9bd', line2: '#f4e7cf' },
-  sky: { accent: '#0284c7', accentInk: '#0c4a6e', accentSoft: '#e0f2fe', paper: '#f4f9fd', paper2: '#e7f1fa', line: '#cfe2f1', line2: '#e0edf7' },
-  rose: { accent: '#e11d48', accentInk: '#881337', accentSoft: '#ffe4e6', paper: '#fdf6f7', paper2: '#fae9ec', line: '#ecd1d6', line2: '#f6e0e4' },
-} as const
-
-type AccentKey = keyof typeof PALETTES
-
-interface Tweaks {
-  accent: AccentKey
-  density: 'cozy' | 'compact'
-  mascot: boolean
-  practiceMode: boolean
-}
 
 // ════════════════════════════════════════════════════════
 // App
@@ -481,23 +468,8 @@ function App(): JSX.Element {
   const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
   const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf'>('svd')
-  const [tweaks, setTweaks] = useState<Tweaks>({ accent: 'emerald', density: 'cozy', mascot: true, practiceMode: false })
-  const [tweaksOpen, setTweaksOpen] = useState<boolean>(false)
-
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
-
-  useEffect(() => {
-    const p = PALETTES[tweaks.accent]
-    const root = document.documentElement
-    root.style.setProperty('--accent', p.accent)
-    root.style.setProperty('--accent-ink', p.accentInk)
-    root.style.setProperty('--accent-soft', p.accentSoft)
-    root.style.setProperty('--paper', p.paper)
-    root.style.setProperty('--paper-2', p.paper2)
-    root.style.setProperty('--line', p.line)
-    root.style.setProperty('--line-2', p.line2)
-  }, [tweaks.accent])
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
@@ -641,14 +613,11 @@ function App(): JSX.Element {
     }
   }
 
-  const updateTweak = <K extends keyof Tweaks>(key: K, val: Tweaks[K]): void => {
-    setTweaks(prev => ({ ...prev, [key]: val }))
-  }
-
   if (useLlm === null) return <></>
 
   return (
-    <div className={`app${tweaks.density === 'compact' ? ' compact' : ''}${useLlm ? ' llm-mode' : ''}`}>
+    <div className={`app${useLlm ? ' llm-mode' : ''}`}>
+      <MathBackground />
       <main className="main">
         <div className="top-brand">
           <div className="top-brand-mark">
@@ -703,17 +672,6 @@ function App(): JSX.Element {
               TF-IDF
             </button>
           </div>
-          {useLlm && (
-            <button
-              className="chip"
-              style={tweaks.practiceMode
-                ? { background: 'var(--apricot)', borderColor: '#b45309', color: '#fff' }
-                : {}}
-              onClick={() => updateTweak('practiceMode', !tweaks.practiceMode)}
-            >
-              🎯 Practice mode {tweaks.practiceMode ? 'on' : 'off'}
-            </button>
-          )}
         </div>
 
         <div className="search-wrap">
@@ -808,97 +766,43 @@ function App(): JSX.Element {
           </div>
         )}
 
-        {results.map(problem => {
-          if (subject === 'math' && 'problem_raw' in problem) {
-            return (
-              <MathCard
-                key={problem.problem_id}
-                p={problem}
-                subject={subject}
-                practiceMode={tweaks.practiceMode}
-                useLlm={useLlm}
-              />
-            )
-          }
-          if (subject === 'cs' && 'title' in problem) {
-            return (
-              <CSCard
-                key={problem.problem_id}
-                p={problem}
-                subject={subject}
-                useLlm={useLlm}
-              />
-            )
-          }
-          return null
-        })}
+        <AnimatePresence mode="popLayout">
+          {results.map((problem, idx) => {
+            const cardVariants = {
+              hidden: { opacity: 0, y: 24 },
+              visible: { opacity: 1, y: 0, transition: { duration: 0.32, delay: idx * 0.06, ease: 'easeOut' as const } },
+              exit:   { opacity: 0, y: -12, transition: { duration: 0.18 } },
+            }
+            if (subject === 'math' && 'problem_raw' in problem) {
+              return (
+                <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit">
+                  <MathCard
+                    p={problem}
+                    subject={subject}
+                    practiceMode={false}
+                    useLlm={useLlm}
+                  />
+                </motion.div>
+              )
+            }
+            if (subject === 'cs' && 'title' in problem) {
+              return (
+                <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit">
+                  <CSCard
+                    p={problem}
+                    subject={subject}
+                    useLlm={useLlm}
+                  />
+                </motion.div>
+              )
+            }
+            return null
+          })}
+        </AnimatePresence>
       </main>
 
       {useLlm && <Chat subject={subject} context={results} />}
 
-      {tweaksOpen ? (
-        <div className="tweaks">
-          <div className="tweaks-title">
-            <span>🎨 Tweaks</span>
-            <button
-              className="icon-btn"
-              style={{ width: 28, height: 28 }}
-              onClick={() => setTweaksOpen(false)}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Accent color</div>
-            <div className="swatches">
-              {(
-                [['emerald', '#059669'], ['apricot', '#f59e0b'], ['sky', '#0284c7'], ['rose', '#e11d48']] as [AccentKey, string][]
-              ).map(([k, c]) => (
-                <button
-                  key={k}
-                  className={`swatch ${tweaks.accent === k ? 'active' : ''}`}
-                  style={{ background: c }}
-                  onClick={() => updateTweak('accent', k)}
-                  title={k}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Density</div>
-            <div className="segmented">
-              <button className={tweaks.density === 'cozy' ? 'on' : ''} onClick={() => updateTweak('density', 'cozy')}>Cozy</button>
-              <button className={tweaks.density === 'compact' ? 'on' : ''} onClick={() => updateTweak('density', 'compact')}>Compact</button>
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Mascot</div>
-            <div className="segmented">
-              <button className={tweaks.mascot ? 'on' : ''} onClick={() => updateTweak('mascot', true)}>On</button>
-              <button className={!tweaks.mascot ? 'on' : ''} onClick={() => updateTweak('mascot', false)}>Off</button>
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Practice mode default</div>
-            <div className="segmented">
-              <button className={tweaks.practiceMode ? 'on' : ''} onClick={() => updateTweak('practiceMode', true)}>On</button>
-              <button className={!tweaks.practiceMode ? 'on' : ''} onClick={() => updateTweak('practiceMode', false)}>Off</button>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <button
-          className="tweaks-closed"
-          onClick={() => setTweaksOpen(true)}
-          title="Tweaks"
-        >
-          <Icon name="tune" size={20} />
-        </button>
-      )}
     </div>
   )
 }
