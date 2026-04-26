@@ -45,9 +45,7 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subject])
 
-  const quickPrompts = subject === 'math'
-    ? ["Explain the key technique here", "Which problem should I start with?", "Compare these problems"]
-    : ["What's the two-pointer pattern?", "Which one should I solve first?", "Compare hash map vs pointers"]
+  const quickPrompts = ["Explain the key technique here", "Which problem should I start with?", "Compare these problems"]
 
   const quickActions = subject === 'math'
     ? ["💡 Give me a hint", "✨ Walk me through #1", "🎯 Quiz me", "📚 Related topic"]
