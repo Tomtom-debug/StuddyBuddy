@@ -77,6 +77,17 @@ def compute_dim_labels(vectorizer, words_compressed, top_n=8):
     return labels
 
 
+def load_bert_model():
+    """Loads the shared BERT model once at startup. Skipped gracefully if not installed."""
+    try:
+        from sentence_transformers import SentenceTransformer
+        print("Loading BERT model (all-MiniLM-L6-v2)…")
+        app.config["BERT_MODEL"] = SentenceTransformer("all-MiniLM-L6-v2")
+        print("BERT model loaded.")
+    except ImportError:
+        print("sentence-transformers not installed — BERT retrieval unavailable.")
+
+
 def load_math_artifacts():
     try:
         with open(os.path.join(processed_directory, "math_problems.json"), "r", encoding="utf-8") as file:
@@ -99,6 +110,13 @@ def load_math_artifacts():
         )
     except FileNotFoundError:
         print("Math retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
+
+    bert_path = os.path.join(processed_directory, "math_bert_embeddings.npy")
+    if os.path.exists(bert_path):
+        app.config["MATH_BERT_EMBEDDINGS"] = np.load(bert_path)
+        print(f"Math BERT embeddings loaded: shape={app.config['MATH_BERT_EMBEDDINGS'].shape}")
+    else:
+        print("Math BERT embeddings not found. Run: python -m lib.retrieval.bert_index")
 
 
 def load_leetcode_artifacts():
@@ -124,9 +142,16 @@ def load_leetcode_artifacts():
     except FileNotFoundError:
         print("LeetCode retrieval artifacts not found. Run preprocessing, TF-IDF indexing, and SVD indexing first.")
 
+    bert_path = os.path.join(processed_directory, "leetcode_bert_embeddings.npy")
+    if os.path.exists(bert_path):
+        app.config["LEETCODE_BERT_EMBEDDINGS"] = np.load(bert_path)
+        print(f"LeetCode BERT embeddings loaded: shape={app.config['LEETCODE_BERT_EMBEDDINGS'].shape}")
+    else:
+        print("LeetCode BERT embeddings not found. Run: python -m lib.retrieval.leetcode_bert_index")
 
 
 #init_db()
+load_bert_model()
 load_math_artifacts()
 load_leetcode_artifacts()
 
