@@ -156,7 +156,6 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
     <aside className="chat">
       <div className="chat-head">
         <div className="chat-title">
-          <div className="chat-avatar">🌱</div>
           <span>Sprout</span>
         </div>
         <div className="chat-sub">Your study buddy · knows what you're looking at</div>

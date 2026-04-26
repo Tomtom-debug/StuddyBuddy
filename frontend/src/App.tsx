@@ -6,6 +6,8 @@ import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
 import { MathBackground } from './MathBackground'
+import { LandingPage } from './LandingPage'
+import { TopNav } from './TopNav'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
 
 // ════════════════════════════════════════════════════════
@@ -456,6 +458,7 @@ function Concepts({ dims }: { dims: SvdDim[] }): JSX.Element {
 // ════════════════════════════════════════════════════════
 
 function App(): JSX.Element {
+  const [page, setPage] = useState<'landing' | 'app'>('landing')
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [subject, setSubject] = useState<Subject>('math')
@@ -613,71 +616,71 @@ function App(): JSX.Element {
     }
   }
 
-  if (useLlm === null) return <></>
+  const goHome = () => setPage('landing')
+  const goSearch = () => setPage('app')
 
   return (
+    <>
+      <TopNav activePage={page} onHome={goHome} onSearch={goSearch} />
+
+      {page === 'landing' ? (
+        <LandingPage onEnter={goSearch} />
+      ) : useLlm === null ? null : (
     <div className={`app${useLlm ? ' llm-mode' : ''}`}>
       <MathBackground />
       <main className="main">
-        <div className="top-brand">
-          <div className="top-brand-mark">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20c0-5 3-8 8-10-5-1-8 2-10 5" />
-              <path d="M12 20c0-5-3-8-8-10 5-1 8 2 10 5" />
-              <path d="M12 20V10" />
-            </svg>
+        <header className="main-head">
+          <div className="main-greeting">
+            Find your next <em>challenge</em>
           </div>
-          <div className="top-brand-name">Studdy<em>Buddy</em></div>
-        </div>
-
-        <header className="main-head" style={{ alignItems: 'flex-start' }}>
-          <div>
-            <div className="main-greeting">
-              Find your next <em>challenge</em>
-            </div>
-            <div className="main-sub">
-              {subject === 'math' ? 'AIME-style · 4,500+ problems' : 'LeetCode · 2,400+ problems'}
-            </div>
+          <div className="main-sub">
+            {subject === 'math' ? 'AIME-style · 4,500+ problems' : 'LeetCode · 2,400+ problems'}
           </div>
         </header>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <div className="subject-swap" role="tablist">
-            <button
-              className={`subject-btn ${subject === 'math' ? 'active' : ''}`}
-              onClick={() => handleSubjectChange('math')}
-            >
-              <span className="emoji">∑</span> Math
-            </button>
-            <button
-              className={`subject-btn ${subject === 'cs' ? 'active' : ''}`}
-              onClick={() => handleSubjectChange('cs')}
-            >
-              <span className="emoji">{'{}'}</span> CS
-            </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 20, flexWrap: 'wrap' }}>
+          <div className="toggle-group">
+            <span className="toggle-label">Subject</span>
+            <div className="subject-swap" role="tablist">
+              <button
+                className={`subject-btn ${subject === 'math' ? 'active' : ''}`}
+                onClick={() => handleSubjectChange('math')}
+              >
+                Math
+              </button>
+              <button
+                className={`subject-btn ${subject === 'cs' ? 'active' : ''}`}
+                onClick={() => handleSubjectChange('cs')}
+              >
+                CS
+              </button>
+            </div>
           </div>
-          <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
-            <button
-              className={`subject-btn ${retrievalMode === 'bert' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('bert')}
-              title="BERT — deep semantic search, understands meaning and synonyms"
-            >
-              BERT
-            </button>
-            <button
-              className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('svd')}
-              title="SVD (Latent Semantic Analysis) — topic-level semantic matching"
-            >
-              SVD
-            </button>
-            <button
-              className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('tfidf')}
-              title="TF-IDF — exact keyword matching"
-            >
-              TF-IDF
-            </button>
+          <div className="toggle-group">
+            <span className="toggle-label">Retrieval</span>
+            <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
+              <button
+                className={`subject-btn ${retrievalMode === 'bert' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('bert')}
+                title="BERT — deep semantic search, understands meaning and synonyms"
+              >
+                BERT
+              </button>
+              <button
+                className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('svd')}
+                title="SVD (Latent Semantic Analysis) — topic-level semantic matching"
+              >
+                SVD
+              </button>
+              <button
+                className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('tfidf')}
+                title="TF-IDF — exact keyword matching"
+              >
+                TF-IDF
+              </button>
+            </div>
           </div>
         </div>
 
@@ -693,14 +696,6 @@ function App(): JSX.Element {
                 ? "Paste a math problem or describe what you're stuck on…"
                 : "Paste a CS problem or describe the pattern you want to learn…"}
             />
-            <button
-              className="search-submit"
-              onClick={handleSubmit}
-              disabled={!searchTerm.trim() || loading}
-              aria-label="Search"
-            >
-              <Icon name="arrow" size={16} />
-            </button>
           </div>
         </div>
 
@@ -766,12 +761,6 @@ function App(): JSX.Element {
           </section>
         )}
 
-        {!loading && searchTerm.trim() === '' && (
-          <div className="empty">
-            <div className="empty-big">Start with a problem or concept ✦</div>
-            <div>Paste any practice problem, or describe a topic you want to explore. Press Enter or → to search.</div>
-          </div>
-        )}
 
         <AnimatePresence mode="popLayout">
           {results.map((problem, idx) => {
@@ -811,6 +800,8 @@ function App(): JSX.Element {
       {useLlm && <Chat subject={subject} context={results} />}
 
     </div>
+      )}
+    </>
   )
 }
 
