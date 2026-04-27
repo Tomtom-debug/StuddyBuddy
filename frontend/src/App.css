@@ -632,12 +632,40 @@ input, textarea { font-family: inherit; }
 
 /* CS text renderer */
 .text-renderer {
-  white-space: pre-wrap;
   word-break: break-word;
-  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
   font-size: 0.92rem;
   line-height: 1.6;
   color: var(--ink-2);
+}
+
+.text-renderer p { margin: 0 0 10px; }
+.text-renderer p:last-child { margin-bottom: 0; }
+.text-renderer ul, .text-renderer ol { margin: 6px 0 10px 18px; padding: 0; }
+.text-renderer li { margin-bottom: 4px; }
+.text-renderer strong { color: var(--ink-1); }
+
+.inline-code {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 0.85em;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #93c5fd;
+}
+
+.code-block {
+  font-family: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  font-size: 0.83rem;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  overflow-x: auto;
+  white-space: pre;
+  color: #e2e8f0;
+  line-height: 1.55;
 }
 
 /* Topic chips */
@@ -1343,6 +1371,21 @@ button:focus-visible, input:focus-visible {
   color: var(--ink-2);
 }
 
+.asy-fallback {
+  display: block;
+  padding: 10px 12px;
+  margin: 10px 0;
+  background: rgba(255,255,255,0.05);
+  border: 1px dashed rgba(255,255,255,0.18);
+  border-radius: 8px;
+}
+
+.asy-status {
+  font-size: 12px;
+  color: var(--ink-3);
+  font-style: italic;
+}
+
 /* ——— Synthesis overview ——— */
 .synthesis-section {
   background: rgba(255,255,255,0.04);
@@ -1801,6 +1844,61 @@ button:focus-visible, input:focus-visible {
 .uni-btn-ghost:hover {
   border-color: #60a5fa;
   background: rgba(96, 165, 250, 0.1);
+}
+
+/* ── Neighbor list ───────────────────────────────────────── */
+.uni-panel-neighbors {
+  margin-top: 12px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.uni-panel-neighbors-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  margin-bottom: 4px;
+}
+.uni-neighbor-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  color: #cbd5e1;
+  font-size: 11px;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s;
+  width: 100%;
+}
+.uni-neighbor-btn:hover {
+  background: rgba(255,255,255,0.09);
+  border-color: rgba(255,255,255,0.2);
+  color: #f1f5f9;
+}
+.uni-neighbor-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.uni-neighbor-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.uni-neighbor-score {
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  flex-shrink: 0;
 }
 
 /* ── Difficulty badges ───────────────────────────────────── */
