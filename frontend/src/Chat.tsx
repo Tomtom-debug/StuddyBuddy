@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Icon } from './icons'
+import { SendHorizontal, Lightbulb, ListChecks, Target, BookOpen } from 'lucide-react'
 import type { SearchResult, Subject } from './types'
 
 interface UserMessage {
@@ -19,9 +19,10 @@ type Message = UserMessage | AssistantMessage
 interface ChatProps {
   subject: Subject
   context: SearchResult[]
+  onClose: () => void
 }
 
-function Chat({ subject, context }: ChatProps): JSX.Element {
+function Chat({ subject, context, onClose }: ChatProps): JSX.Element {
   const initialMessage = (): AssistantMessage => ({
     isUser: false,
     irQuery: '',
@@ -47,9 +48,13 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
 
   const quickPrompts = ["Explain the key technique here", "Which problem should I start with?", "Compare these problems"]
 
-  const quickActions = subject === 'math'
-    ? ["💡 Give me a hint", "✨ Walk me through #1", "🎯 Quiz me", "📚 Related topic"]
-    : ["💡 Give me a hint", "✨ Walk me through #1", "🎯 Quiz me", "📚 Time complexity"]
+  const quickActions = [
+    { icon: <Lightbulb size={13} />, label: 'Give me a hint',      prompt: 'Give me a hint' },
+    { icon: <ListChecks size={13} />, label: 'Walk me through #1', prompt: 'Walk me through #1' },
+    { icon: <Target size={13} />,    label: 'Quiz me',             prompt: 'Quiz me' },
+    { icon: <BookOpen size={13} />,  label: subject === 'math' ? 'Related topic' : 'Time complexity',
+                                     prompt: subject === 'math' ? 'Related topic' : 'Time complexity' },
+  ]
 
   const sendMessage = async (text?: string): Promise<void> => {
     const t = (text ?? input).trim()
@@ -157,6 +162,7 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
       <div className="chat-head">
         <div className="chat-title">
           <span>Sprout</span>
+          <button className="chat-close" onClick={onClose} aria-label="Close Sprout">×</button>
         </div>
         <div className="chat-sub">Your study buddy · knows what you're looking at</div>
         <div className="chat-status">
@@ -194,7 +200,7 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
                 <div className="suggest-chips">
                   {quickPrompts.map(q => (
                     <button key={q} className="suggest-chip" onClick={() => void sendMessage(q)}>
-                      ✦ {q}
+                      {q}
                     </button>
                   ))}
                 </div>
@@ -215,8 +221,8 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
       <div className="chat-foot">
         <div className="chat-quickrow">
           {quickActions.map(q => (
-            <button key={q} className="quick-chip" onClick={() => void sendMessage(q.replace(/^[^ ]+ /, ''))}>
-              {q}
+            <button key={q.label} className="quick-chip" onClick={() => void sendMessage(q.prompt)}>
+              {q.icon}{q.label}
             </button>
           ))}
         </div>
@@ -234,7 +240,7 @@ function Chat({ subject, context }: ChatProps): JSX.Element {
             disabled={loading || !input.trim()}
             aria-label="Send"
           >
-            <Icon name="send" size={16} />
+            <SendHorizontal size={16} />
           </button>
         </div>
       </div>

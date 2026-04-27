@@ -500,6 +500,8 @@ input, textarea { font-family: inherit; }
   backdrop-filter: var(--glass-blur);
   position: relative;
   transition: transform 0.18s, border-color 0.18s, box-shadow 0.18s;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .card:hover {
@@ -612,6 +614,11 @@ input, textarea { font-family: inherit; }
   font-size: 15.5px;
   line-height: 1.7;
   color: var(--ink-2);
+  height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.1) transparent;
+  box-sizing: border-box;
 }
 
 .prob-body .katex { font-size: 1.05em; }
@@ -894,6 +901,94 @@ input, textarea { font-family: inherit; }
   font-size: 19px;
   color: var(--ink);
   letter-spacing: -0.01em;
+}
+
+.chat-close {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--mute);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  transition: color 0.15s, background 0.15s;
+}
+.chat-close:hover { color: var(--ink); background: rgba(255,255,255,0.07); }
+
+/* ——— Sprout FAB ——— */
+.sprout-fab {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  z-index: 150;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba(100,255,218,0.35);
+  background: rgba(5,5,10,0.85);
+  backdrop-filter: blur(12px);
+  color: var(--accent);
+  font-size: 22px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 0 20px rgba(100,255,218,0.15);
+  transition: transform 0.18s, box-shadow 0.18s;
+}
+.sprout-fab:hover { transform: scale(1.08); box-shadow: 0 0 30px rgba(100,255,218,0.3); }
+.sprout-fab.open { color: var(--ink); }
+
+/* ——— Tablet breakpoint ≤768px ——— */
+@media (max-width: 768px) {
+  /* Chat becomes full-screen overlay; sidebar grid collapses */
+  .app.llm-mode { grid-template-columns: 1fr; }
+  .chat {
+    position: fixed;
+    inset: 0;
+    z-index: 300;
+    height: 100dvh;
+    border-left: none;
+    padding-top: 0;
+  }
+  .sprout-fab { bottom: 20px; right: 20px; }
+
+  /* Nav padding */
+  .top-nav { padding: 0 20px; }
+
+  /* Main column */
+  .main { padding: 74px 20px 60px; }
+  .main-greeting { font-size: 28px; }
+
+  /* 44×44px minimum touch targets */
+  .subject-btn  { min-height: 44px; }
+  .top-nav-btn  { min-height: 44px; padding: 10px 18px; }
+  .btn          { min-height: 44px; }
+  .suggest-chip { min-height: 44px; }
+  .quick-chip   { min-height: 44px; padding: 10px 14px; }
+  .chat-send    { width: 44px; height: 44px; }
+  .chat-close   { min-height: 44px; min-width: 44px; display: grid; place-items: center; }
+}
+
+/* ——— Small mobile breakpoint ≤540px ——— */
+@media (max-width: 540px) {
+  .top-nav { padding: 0 14px; }
+  /* Hide "Problem Universe" — too wide for small screens */
+  .top-nav-btn--soon { display: none; }
+
+  .main { padding: 70px 12px 40px; }
+  .main-greeting { font-size: 22px; }
+
+  .card { padding: 14px 14px; }
+  .card-title { font-size: 17px; }
+  .prob-body { padding: 12px 12px; font-size: 14px; }
+
+  /* Concept label fixed width causes overflow on narrow screens */
+  .concept-label { min-width: 90px; max-width: 110px; font-size: 12px; }
+
+  .search-box { padding: 12px 12px 12px 16px; }
+  .hint-text { font-size: 12px; }
 }
 
 .chat-avatar {

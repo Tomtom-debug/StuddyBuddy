@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import './App.css'
-import { Icon } from './icons'
+import { Eye, EyeOff, ArrowRight, Search, Sprout, X } from 'lucide-react'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
@@ -186,12 +186,12 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
       <div className="card-foot">
         {!revealed ? (
           <button className="btn primary" onClick={() => setRevealed(true)}>
-            <Icon name="eye" size={15} />
+            <Eye size={15} />
             {practiceMode ? "I've tried — check answer" : 'Reveal answer'}
           </button>
         ) : (
           <button className="btn ghost" onClick={() => setRevealed(false)}>
-            <Icon name="x" size={15} /> Hide answer
+            <EyeOff size={15} /> Hide answer
           </button>
         )}
         {useLlm && (
@@ -352,7 +352,7 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       <div className="card-foot">
         {p.url && (
           <a className="btn primary" href={p.url} target="_blank" rel="noreferrer">
-            <Icon name="arrow" size={15} /> Open on LeetCode
+            <ArrowRight size={15} /> Open on LeetCode
           </a>
         )}
         {useLlm && (
@@ -471,8 +471,10 @@ function App(): JSX.Element {
   const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
   const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf' | 'bert'>('bert')
+  const [isSproutOpen, setIsSproutOpen] = useState<boolean>(false)
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
+  const mainRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
@@ -617,7 +619,10 @@ function App(): JSX.Element {
   }
 
   const goHome = () => setPage('landing')
-  const goSearch = () => setPage('app')
+  const goSearch = () => {
+    setPage('app')
+    mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }
 
   return (
     <>
@@ -628,7 +633,7 @@ function App(): JSX.Element {
       ) : useLlm === null ? null : (
     <div className={`app${useLlm ? ' llm-mode' : ''}`}>
       <MathBackground />
-      <main className="main">
+      <main className="main" ref={mainRef}>
         <header className="main-head">
           <div className="main-greeting">
             Find your next <em>challenge</em>
@@ -686,7 +691,7 @@ function App(): JSX.Element {
 
         <div className="search-wrap">
           <div className="search-box">
-            <span className="icon"><Icon name="search" size={20} /></span>
+            <span className="icon"><Search size={20} /></span>
             <input
               id="search-input"
               value={searchTerm}
@@ -762,42 +767,56 @@ function App(): JSX.Element {
         )}
 
 
-        <AnimatePresence mode="popLayout">
-          {results.map((problem, idx) => {
-            const cardVariants = {
-              hidden: { opacity: 0, y: 24 },
-              visible: { opacity: 1, y: 0, transition: { duration: 0.32, delay: idx * 0.06, ease: 'easeOut' as const } },
-              exit:   { opacity: 0, y: -12, transition: { duration: 0.18 } },
-            }
-            if (subject === 'math' && 'problem_raw' in problem) {
-              return (
-                <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit">
-                  <MathCard
-                    p={problem}
-                    subject={subject}
-                    practiceMode={false}
-                    useLlm={useLlm}
-                  />
-                </motion.div>
-              )
-            }
-            if (subject === 'cs' && 'title' in problem) {
-              return (
-                <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit">
-                  <CSCard
-                    p={problem}
-                    subject={subject}
-                    useLlm={useLlm}
-                  />
-                </motion.div>
-              )
-            }
-            return null
-          })}
-        </AnimatePresence>
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <AnimatePresence mode="popLayout">
+            {results.map((problem, idx) => {
+              const cardVariants = {
+                hidden: { opacity: 0, y: 24 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.32, delay: idx * 0.06, ease: 'easeOut' as const } },
+                exit:   { opacity: 0, y: -12, transition: { duration: 0.18 } },
+              }
+              if (subject === 'math' && 'problem_raw' in problem) {
+                return (
+                  <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit" style={{ width: '100%' }}>
+                    <MathCard
+                      p={problem}
+                      subject={subject}
+                      practiceMode={false}
+                      useLlm={useLlm}
+                    />
+                  </motion.div>
+                )
+              }
+              if (subject === 'cs' && 'title' in problem) {
+                return (
+                  <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit" style={{ width: '100%' }}>
+                    <CSCard
+                      p={problem}
+                      subject={subject}
+                      useLlm={useLlm}
+                    />
+                  </motion.div>
+                )
+              }
+              return null
+            })}
+          </AnimatePresence>
+        </div>
       </main>
 
-      {useLlm && <Chat subject={subject} context={results} />}
+      {useLlm && isSproutOpen && (
+        <Chat subject={subject} context={results} onClose={() => setIsSproutOpen(false)} />
+      )}
+
+      {useLlm && (
+        <button
+          className={`sprout-fab${isSproutOpen ? ' open' : ''}`}
+          onClick={() => setIsSproutOpen(o => !o)}
+          aria-label={isSproutOpen ? 'Close Sprout' : 'Open Sprout'}
+        >
+          {isSproutOpen ? <X size={20} /> : <Sprout size={20} />}
+        </button>
+      )}
 
     </div>
       )}
