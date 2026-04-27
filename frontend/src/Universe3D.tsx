@@ -47,10 +47,15 @@ export interface UniverseNode {
   url?: string
 }
 
+export interface UniverseEdge {
+  source: string
+  target: string
+  weight: number
+}
+
 export interface Universe3DProps {
   subject: 'math' | 'cs'
   highlightIds: Set<string>
-  onFindSimilar: (node: UniverseNode) => void
   onSearch: (query: string, subject: 'math' | 'cs', retrieval: 'svd' | 'tfidf' | 'bert') => void
   onReset: () => void
   onClose: () => void
@@ -130,15 +135,26 @@ type FlyTo = {
   t0: number; dur: number
 }
 
+type EdgeAnim = {
+  lines:   THREE.LineSegments
+  geo:     THREE.BufferGeometry
+  targets: { sx: number; sy: number; sz: number; tx: number; ty: number; tz: number }[]
+  t0:      number
+  dur:     number
+  stagger: number
+  done:    boolean
+}
+
 type ThreeCtx = {
-  renderer: THREE.WebGLRenderer
-  scene:    THREE.Scene
-  camera:   THREE.PerspectiveCamera
-  controls: OrbitControls
-  points:   THREE.Points
-  geo:      THREE.BufferGeometry
-  flyTo:    FlyTo | null
-  raf:      number
+  renderer:  THREE.WebGLRenderer
+  scene:     THREE.Scene
+  camera:    THREE.PerspectiveCamera
+  controls:  OrbitControls
+  points:    THREE.Points
+  geo:       THREE.BufferGeometry
+  flyTo:     FlyTo | null
+  raf:       number
+  edgeAnim:  EdgeAnim | null
 }
 
 // ── Screen-space hit detection ─────────────────────────────────────────────
@@ -218,17 +234,24 @@ const S = 5
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function Universe3D({ subject, highlightIds, onFindSimilar, onSearch, onReset, onClose }: Universe3DProps) {
-  const mountRef  = useRef<HTMLDivElement>(null)
-  const ctxRef    = useRef<ThreeCtx | null>(null)
-  const nodesRef  = useRef<UniverseNode[]>([])
-  const dnRef     = useRef<{ x: number; y: number } | null>(null) // mousedown pos
+export default function Universe3D({ subject, highlightIds, onSearch, onReset, onClose }: Universe3DProps) {
+  const mountRef       = useRef<HTMLDivElement>(null)
+  const ctxRef         = useRef<ThreeCtx | null>(null)
+  const nodesRef       = useRef<UniverseNode[]>([])
+  const dnRef          = useRef<{ x: number; y: number } | null>(null)
+  const edgesRef       = useRef<UniverseEdge[]>([])
+  const nodeIndexRef   = useRef<Map<string, number>>(new Map())
+  const edgeNodeMapRef = useRef<Map<string, number[]>>(new Map())
 
-  const [nodes,    setNodes]    = useState<UniverseNode[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [hovered,  setHovered]  = useState<UniverseNode | null>(null)
-  const [selected, setSelected] = useState<UniverseNode | null>(null)
-  const [cursorXY, setCursorXY] = useState({ x: 0, y: 0 })
+  const [nodes,           setNodes]           = useState<UniverseNode[]>([])
+  const [loading,         setLoading]         = useState(true)
+  const [hovered,         setHovered]         = useState<UniverseNode | null>(null)
+  const [selected,        setSelected]        = useState<UniverseNode | null>(null)
+  const [cursorXY,        setCursorXY]        = useState({ x: 0, y: 0 })
+  const [localHighlights, setLocalHighlights] = useState<Set<string>>(new Set())
+  const [simLoading,      setSimLoading]      = useState(false)
+  const localHighlightsRef = useRef<Set<string>>(new Set())
+  const treeRootRef        = useRef<string | null>(null)
 
   const [uniQuery,     setUniQuery]     = useState('')
   const [uniSubject,   setUniSubject]   = useState<'math' | 'cs'>(subject)
@@ -243,8 +266,18 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
   const handleReset = useCallback(() => {
     onReset()
     setUniQuery('')
+    setSelected(null)
+    treeRootRef.current = null
+    localHighlightsRef.current = new Set()
+    setLocalHighlights(new Set())
     const ctx = ctxRef.current
-    if (ctx) flyToPos(ctx, 0, 400, 3500, 0, 0, 0, 1400)
+    if (!ctx) return
+    if (ctx.edgeAnim) {
+      ctx.scene.remove(ctx.edgeAnim.lines)
+      ctx.edgeAnim.geo.dispose()
+      ctx.edgeAnim = null
+    }
+    flyToPos(ctx, 0, 400, 3500, 0, 0, 0, 1400)
   }, [onReset])
 
   useEffect(() => { nodesRef.current = nodes }, [nodes])
@@ -253,7 +286,11 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
   useEffect(() => {
     fetch('/api/universe')
       .then(r => r.json())
-      .then((d: { nodes: UniverseNode[] }) => { setNodes(d.nodes); setLoading(false) })
+      .then((d: { nodes: UniverseNode[]; edges?: UniverseEdge[] }) => {
+        edgesRef.current = d.edges ?? []
+        setNodes(d.nodes)
+        setLoading(false)
+      })
       .catch(() => setLoading(false))
   }, [])
 
@@ -342,8 +379,20 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
     const points = new THREE.Points(geo, mat)
     scene.add(points)
 
+    // ── Build neighbor lookup maps (no geometry yet — edges drawn on demand) ──
+    const nodeIndex = new Map(nodes.map((n, i) => [n.id, i]))
+    nodeIndexRef.current = nodeIndex
+    const edgeNodeMap = new Map<string, number[]>()
+    edgesRef.current.forEach((e, i) => {
+      if (!edgeNodeMap.has(e.source)) edgeNodeMap.set(e.source, [])
+      if (!edgeNodeMap.has(e.target)) edgeNodeMap.set(e.target, [])
+      edgeNodeMap.get(e.source)!.push(i)
+      edgeNodeMap.get(e.target)!.push(i)
+    })
+    edgeNodeMapRef.current = edgeNodeMap
+
     // ── Render loop ─────────────────────────────────────────────────────────
-    const ctx: ThreeCtx = { renderer, scene, camera, controls, points, geo, flyTo: null, raf: 0 }
+    const ctx: ThreeCtx = { renderer, scene, camera, controls, points, geo, flyTo: null, raf: 0, edgeAnim: null }
     ctxRef.current = ctx
 
     const animate = (now: number) => {
@@ -358,6 +407,26 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
         camera.position.lerpVectors(start, target, e)
         controls.target.lerpVectors(startLook, lookAt, e)
         if (t >= 1) ctx.flyTo = null
+      }
+
+      // Animated edge draw — keep edgeAnim alive after done so cleanup can remove lines
+      if (ctx.edgeAnim && !ctx.edgeAnim.done) {
+        const { geo: eg, targets, t0, dur, stagger } = ctx.edgeAnim
+        const posAttr = eg.getAttribute('position') as THREE.BufferAttribute
+        let allDone = true
+        targets.forEach((tgt, i) => {
+          const elapsed = now - t0 - i * stagger
+          const progress = Math.max(0, Math.min(1, elapsed / dur))
+          if (progress < 1) allDone = false
+          const ease = 1 - Math.pow(1 - progress, 3)
+          posAttr.setXYZ(i*2+1,
+            tgt.sx + (tgt.tx - tgt.sx) * ease,
+            tgt.sy + (tgt.ty - tgt.sy) * ease,
+            tgt.sz + (tgt.tz - tgt.sz) * ease,
+          )
+        })
+        posAttr.needsUpdate = true
+        if (allDone) ctx.edgeAnim.done = true
       }
 
       renderer.render(scene, camera)
@@ -384,6 +453,7 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
       mat.dispose()
       starGeo.dispose()
       divGeo.dispose()
+      if (ctx.edgeAnim) { ctx.edgeAnim.geo.dispose(); ctx.scene.remove(ctx.edgeAnim.lines) }
       if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement)
       ctxRef.current = null
     }
@@ -399,11 +469,12 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
     const colAttr = ctx.geo.getAttribute('aColor')   as THREE.BufferAttribute
     const szAttr  = ctx.geo.getAttribute('aSize')    as THREE.BufferAttribute
 
-    const hasSearch  = highlightIds.size > 0
+    const effective = localHighlights.size > 0 ? localHighlights : highlightIds
+    const hasSearch  = effective.size > 0
     const selId      = selected?.id
 
     nodes.forEach((n, i) => {
-      const isHit = highlightIds.has(n.id)
+      const isHit = effective.has(n.id)
       const isSel = n.id === selId
       const base  = COLOR_OBJ[n.topic] ?? COLOR_OBJ['other']
 
@@ -446,13 +517,32 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
     glAttr.needsUpdate  = true
     colAttr.needsUpdate = true
     szAttr.needsUpdate  = true
-  }, [highlightIds, selected, nodes])
+  }, [highlightIds, localHighlights, selected, nodes])
+
+  // ── Clear edges only when selecting outside the current tree ─────────────
+  useEffect(() => {
+    // null = deselect (double-click), root node, or any result node — keep tree intact
+    if (!selected) return
+    if (selected.id === treeRootRef.current) return
+    if (localHighlightsRef.current.has(selected.id)) return
+    // Clicked outside the tree — tear down
+    const ctx = ctxRef.current
+    if (ctx?.edgeAnim) {
+      ctx.scene.remove(ctx.edgeAnim.lines)
+      ctx.edgeAnim.geo.dispose()
+      ctx.edgeAnim = null
+    }
+    treeRootRef.current = null
+    localHighlightsRef.current = new Set()
+    setLocalHighlights(new Set())
+  }, [selected])
 
   // ── Camera flyto on new search results ────────────────────────────────────
   useEffect(() => {
     const ctx = ctxRef.current
-    if (!ctx || highlightIds.size === 0 || nodes.length === 0) return
-    const matched = nodes.filter(n => highlightIds.has(n.id))
+    const effective = localHighlights.size > 0 ? localHighlights : highlightIds
+    if (!ctx || effective.size === 0 || nodes.length === 0) return
+    const matched = nodes.filter(n => effective.has(n.id))
     if (!matched.length) return
     const cx = matched.reduce((s, n) => s + n.x * S, 0) / matched.length
     const cy = matched.reduce((s, n) => s + n.y * S, 0) / matched.length
@@ -464,7 +554,7 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
     }, 0)
     const dist = Math.max(60, Math.min(spread * 1.0 + 50, 350))
     flyToPos(ctx, cx, cy + dist * 0.08, cz + dist, cx, cy, cz, 1400)
-  }, [highlightIds, nodes])
+  }, [highlightIds, localHighlights, nodes])
 
   // ── FlyTo ─────────────────────────────────────────────────────────────────
   function flyToPos(
@@ -482,6 +572,75 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
       dur,
     }
   }
+
+  // ── Fire animated edges from source → targets ─────────────────────────────
+  function fireEdgeAnim(ctx: ThreeCtx, source: UniverseNode, targets: UniverseNode[]) {
+    if (ctx.edgeAnim) {
+      ctx.scene.remove(ctx.edgeAnim.lines)
+      ctx.edgeAnim.geo.dispose()
+      ctx.edgeAnim = null
+    }
+    if (targets.length === 0) return
+    const ec = targets.length
+    const edgePos = new Float32Array(ec * 6)
+    const edgeCol = new Float32Array(ec * 6)
+    const animTargets: EdgeAnim['targets'] = []
+    targets.forEach((nb, i) => {
+      const sx = source.x*S, sy = source.y*S, sz = source.z*S
+      edgePos[i*6]   = sx; edgePos[i*6+1] = sy; edgePos[i*6+2] = sz
+      edgePos[i*6+3] = sx; edgePos[i*6+4] = sy; edgePos[i*6+5] = sz
+      const c = COLOR_OBJ[nb.topic] ?? COLOR_OBJ['other']
+      edgeCol[i*6]   = c.r; edgeCol[i*6+1] = c.g; edgeCol[i*6+2] = c.b
+      edgeCol[i*6+3] = c.r; edgeCol[i*6+4] = c.g; edgeCol[i*6+5] = c.b
+      animTargets.push({ sx, sy, sz, tx: nb.x*S, ty: nb.y*S, tz: nb.z*S })
+    })
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.BufferAttribute(edgePos, 3))
+    geo.setAttribute('color',    new THREE.BufferAttribute(edgeCol, 3))
+    const lines = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({
+      vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false,
+    }))
+    ctx.scene.add(lines)
+    ctx.edgeAnim = { lines, geo, targets: animTargets, t0: performance.now(), dur: 600, stagger: 60, done: false }
+  }
+
+  // ── Find similar: search + draw edges + highlight — stay in universe ───────
+  const handleFindSimilarHere = useCallback(async () => {
+    if (!selected) return
+    const ctx = ctxRef.current
+    if (!ctx) return
+    setSimLoading(true)
+    const query = (selected.query_seed ?? selected.preview).trim()
+    const subj  = selected.type
+    try {
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject: subj, query, top_k: 15, retrieval_mode: 'svd', min_similarity: 0.3 }),
+      })
+      const data = await res.json() as { results?: { problem_id: number }[] }
+      const hitIds = new Set((data.results ?? []).map(r => `${subj}_${r.problem_id}`))
+      hitIds.delete(selected.id)
+      const targetNodes = nodes.filter(n => hitIds.has(n.id))
+      treeRootRef.current = selected.id
+      localHighlightsRef.current = hitIds
+      setLocalHighlights(hitIds)
+      fireEdgeAnim(ctx, selected, targetNodes)
+      if (targetNodes.length > 0) {
+        const all = [selected, ...targetNodes]
+        const cx = all.reduce((s, n) => s + n.x*S, 0) / all.length
+        const cy = all.reduce((s, n) => s + n.y*S, 0) / all.length
+        const cz = all.reduce((s, n) => s + n.z*S, 0) / all.length
+        const spread = all.reduce((mx, n) => {
+          const dx = n.x*S - cx, dy = n.y*S - cy, dz = n.z*S - cz
+          return Math.max(mx, Math.sqrt(dx*dx + dy*dy + dz*dz))
+        }, 0)
+        const dist = Math.max(80, Math.min(spread * 1.3 + 80, 500))
+        flyToPos(ctx, cx, cy + dist * 0.1, cz + dist, cx, cy, cz, 1400)
+      }
+    } catch { /* silent */ }
+    finally { setSimLoading(false) }
+  }, [selected, nodes])
 
   // ── Hover ─────────────────────────────────────────────────────────────────
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -509,7 +668,17 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
     const ctx = ctxRef.current
     if (!ctx || nodesRef.current.length === 0) return
     const node = screenHit(nodesRef.current, ctx.camera, ctx.renderer.domElement, e.clientX, e.clientY)
-    if (!node) { setSelected(null); return }
+
+    // While a tree is active, only allow clicks on tree nodes (root + results)
+    const treeActive = treeRootRef.current !== null
+    if (treeActive) {
+      if (!node) return  // clicked empty space — ignore
+      const inTree = node.id === treeRootRef.current || localHighlightsRef.current.has(node.id)
+      if (!inTree) return  // clicked outside tree — ignore
+    } else {
+      if (!node) { setSelected(null); return }
+    }
+
     setSelected(prev => {
       const next = prev?.id === node.id ? null : node
       if (next) flyToPos(ctx, next.x*S, next.y*S + 5, next.z*S + 50, next.x*S, next.y*S, next.z*S, 900)
@@ -674,10 +843,39 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onSea
                 Open on LeetCode ↗
               </a>
             )}
-            <button className="uni-btn-ghost" onClick={() => onFindSimilar(selected)}>
-              Find similar →
+            <button
+              className="uni-btn-ghost"
+              onClick={() => void handleFindSimilarHere()}
+              disabled={simLoading}
+            >
+              {simLoading ? 'Searching…' : 'Find similar →'}
             </button>
           </div>
+          {(() => {
+            const neighborIds = (edgeNodeMapRef.current.get(selected.id) ?? [])
+              .map(i => { const e = edgesRef.current[i]; return e.source === selected.id ? e.target : e.source })
+            const neighbors = neighborIds
+              .map(id => nodes.find(n => n.id === id))
+              .filter((n): n is UniverseNode => n !== undefined)
+            if (neighbors.length === 0) return null
+            return (
+              <div className="uni-panel-neighbors">
+                <div className="uni-panel-neighbors-label">Similar in this cluster</div>
+                {neighbors.map(n => (
+                  <button key={n.id} className="uni-neighbor-btn" onClick={() => setSelected(n)}>
+                    <span className="uni-neighbor-dot" style={{ background: COLORS[n.topic] }} />
+                    <span className="uni-neighbor-name">{n.title ?? `Problem #${n.problem_id}`}</span>
+                    <span className="uni-neighbor-score">
+                      {((edgesRef.current.find(e =>
+                        (e.source === selected.id && e.target === n.id) ||
+                        (e.target === selected.id && e.source === n.id)
+                      )?.weight ?? 0) * 100).toFixed(0)}%
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

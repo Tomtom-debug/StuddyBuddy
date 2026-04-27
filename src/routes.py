@@ -147,13 +147,13 @@ def format_search_result(subject, record, score, doc_top_dims=None):
     raise ValueError("subject must be 'math' or 'cs'")
 
 
-def search_problems(app, subject, query, top_k=5, retrieval_mode="bert"):
+def search_problems(app, subject, query, top_k=5, retrieval_mode="bert", min_similarity=None):
     resolved_subject = resolve_subject(subject)
 
     records, vectorizer, docs_compressed, words_compressed, dim_labels = get_retrieval_artifacts(app, resolved_subject)
 
     query_text = build_combined_text(query)
-    threshold = SIMILARITY_THRESHOLDS.get(resolved_subject, 0.5)
+    threshold = min_similarity if min_similarity is not None else SIMILARITY_THRESHOLDS.get(resolved_subject, 0.5)
 
     if retrieval_mode == "tfidf":
         tfidf_key = "MATH_TFIDF_MATRIX" if resolved_subject == "math" else "LEETCODE_TFIDF_MATRIX"
@@ -183,7 +183,7 @@ def search_problems(app, subject, query, top_k=5, retrieval_mode="bert"):
             )
         # BERT works best on natural language — use raw query, not the LaTeX-heavy combined_text
         query_vec = bert_model.encode([query], normalize_embeddings=True)
-        bert_threshold = BERT_SIMILARITY_THRESHOLDS.get(resolved_subject, 0.3)
+        bert_threshold = min_similarity if min_similarity is not None else BERT_SIMILARITY_THRESHOLDS.get(resolved_subject, 0.3)
         ranked_matches = rank_by_cosine(query_vec, bert_embeddings, top_k=top_k)
         query_top_dims = None
         results = []
@@ -248,6 +248,12 @@ def register_routes(app):
         retrieval_mode = payload.get("retrieval_mode", "bert").strip().lower()
         if retrieval_mode not in ("svd", "tfidf", "bert"):
             retrieval_mode = "bert"
+        min_similarity = payload.get("min_similarity", None)
+        if min_similarity is not None:
+            try:
+                min_similarity = float(min_similarity)
+            except (TypeError, ValueError):
+                min_similarity = None
 
         if not subject:
             return jsonify({"error": "Missing 'subject' field."}), 400
@@ -264,18 +270,18 @@ def register_routes(app):
             return jsonify({"error": "'top_k' must be positive."}), 400
 
         try:
-            response = search_problems(app, subject, query, top_k=top_k, retrieval_mode=retrieval_mode)
+            response = search_problems(app, subject, query, top_k=top_k, retrieval_mode=retrieval_mode, min_similarity=min_similarity)
             return jsonify(response)
         except ValueError as exc:
             return jsonify({"error": str(exc)}), 400
         except RuntimeError as exc:
             return jsonify({"error": str(exc)}), 500
 
-
     @app.route("/api/universe")
     def universe():
         nodes = app.config.get("UNIVERSE_NODES", [])
-        return jsonify({"nodes": nodes, "count": len(nodes)})
+        edges = app.config.get("UNIVERSE_EDGES", [])
+        return jsonify({"nodes": nodes, "edges": edges, "count": len(nodes)})
 
     if USE_LLM:
         from llm_routes import register_chat_route

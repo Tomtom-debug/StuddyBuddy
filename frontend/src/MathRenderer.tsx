@@ -50,13 +50,34 @@ function simplifyArrayAlignment(input: string): string {
 function normalizeLatex(input: string): string {
   return simplifyArrayAlignment(normalizeDanglingDelimiters(
     input
-      // A few records use "$$43$" instead of a literal currency sign "$43".
+      // Currency amounts written as $$43$ instead of $43
       .replace(/\$\$([0-9][0-9,]*(?:\.[0-9]+)?)\$(?!\$)/g, '\\$$1')
+      // align / align* → aligned (KaTeX doesn't have standalone align)
+      .replace(/\\begin\{align\*?\}/g, '$$\\begin{aligned}')
+      .replace(/\\end\{align\*?\}/g, '\\end{aligned}$$')
+      // eqnarray → aligned
+      .replace(/\\begin\{eqnarray\*?\}/g, '$$\\begin{aligned}')
+      .replace(/\\end\{eqnarray\*?\}/g, '\\end{aligned}$$')
+      // dots variants KaTeX doesn't know
+      .replace(/\\dotsc\b/g, '\\ldots')
+      .replace(/\\dotsb\b/g, '\\cdots')
+      .replace(/\\dotsi\b/g, '\\cdots')
+      .replace(/\\dotsm\b/g, '\\cdots')
+      // \emph → \textit
+      .replace(/\\emph\{/g, '\\textit{')
+      // \textup → \text
+      .replace(/\\textup\{/g, '\\text{')
+      // spacing commands KaTeX ignores or errors on — strip them
+      .replace(/\\(vspace|hspace\*?)\{[^}]*\}/g, '')
+      .replace(/\\(medskip|bigskip|smallskip|noindent|hfill|newline)\b/g, ' ')
+      // \text- fix
       .replace(/\\text-/g, '\\text{-}')
-      .replace(/\\begin\{align\*\}/g, '$$\\begin{aligned}')
-      .replace(/\\end\{align\*\}/g, '\\end{aligned}$$')
-      .replace(/\\begin\{align\}/g, '$$\\begin{aligned}')
-      .replace(/\\end\{align\}/g, '\\end{aligned}$$')
+      // \left. and \right. (invisible fence — keep, KaTeX handles it)
+      // \operatorname already supported by KaTeX
+      // strip environments that appear outside math mode and confuse the renderer
+      .replace(/\\begin\{(itemize|enumerate|description)\}/g, '')
+      .replace(/\\end\{(itemize|enumerate|description)\}/g, '')
+      .replace(/\\item\b\s*/g, '\n• ')
   ))
 }
 
@@ -97,19 +118,45 @@ function KaTeXSpan({ text }: { text: string }): JSX.Element {
   return <span ref={ref}>{normalizeLatex(text)}</span>
 }
 
+function AsyBlock(): JSX.Element {
+  return (
+    <div className="asy-fallback">
+      <div className="asy-status">Diagrams coming soon.</div>
+    </div>
+  )
+}
+
 type Segment =
   | { type: 'text'; content: string }
   | { type: 'tabular'; src: string }
+  | { type: 'asy'; src: string }
+
+// Matches both [asy]...[/asy] and \begin{asy}...\end{asy}
+const ASY_RE = /\[asy\][\s\S]*?\[\/asy\]|\\begin\{asy\}[\s\S]*?\\end\{asy\}/gi
+const TABULAR_RE = /\\begin\{tabular\}(?:\{[^}]*\})?[\s\S]*?\\end\{tabular\}/g
 
 function splitSegments(text: string): Segment[] {
-  const segments: Segment[] = []
-  const re = /\\begin\{tabular\}(?:\{[^}]*\})?[\s\S]*?\\end\{tabular\}/g
-  let last = 0
+  // Collect all special blocks with their positions
+  type RawMatch = { index: number; end: number; seg: Segment }
+  const matches: RawMatch[] = []
+
   let m: RegExpExecArray | null
-  while ((m = re.exec(text)) !== null) {
-    if (m.index > last) segments.push({ type: 'text', content: text.slice(last, m.index) })
-    segments.push({ type: 'tabular', src: m[0] })
-    last = m.index + m[0].length
+  const asyRe = new RegExp(ASY_RE.source, 'gi')
+  while ((m = asyRe.exec(text)) !== null)
+    matches.push({ index: m.index, end: m.index + m[0].length, seg: { type: 'asy', src: m[0] } })
+
+  const tabRe = new RegExp(TABULAR_RE.source, 'g')
+  while ((m = tabRe.exec(text)) !== null)
+    matches.push({ index: m.index, end: m.index + m[0].length, seg: { type: 'tabular', src: m[0] } })
+
+  matches.sort((a, b) => a.index - b.index)
+
+  const segments: Segment[] = []
+  let last = 0
+  for (const hit of matches) {
+    if (hit.index > last) segments.push({ type: 'text', content: text.slice(last, hit.index) })
+    segments.push(hit.seg)
+    last = hit.end
   }
   if (last < text.length) segments.push({ type: 'text', content: text.slice(last) })
   return segments
@@ -133,11 +180,11 @@ export default function MathRenderer({ text }: MathRendererProps): JSX.Element {
 
   return (
     <div className="latex-text">
-      {segments.map((seg, i) =>
-        seg.type === 'tabular'
-          ? <TabularBlock key={i} src={seg.src} />
-          : <MathSegment key={i} content={seg.content} />
-      )}
+      {segments.map((seg, i) => {
+        if (seg.type === 'tabular') return <TabularBlock key={i} src={seg.src} />
+        if (seg.type === 'asy') return <AsyBlock key={i} />
+        return <MathSegment key={i} content={seg.content} />
+      })}
     </div>
   )
 }

@@ -172,6 +172,36 @@ def _compute_3d_positions(matrix, scale=150.0):
     return pos
 
 
+def _compute_knn_edges(matrix, ids, k=4, min_sim=0.55):
+    """Return deduplicated k-nearest-neighbor edges as {source, target, weight} dicts."""
+    n = min(len(ids), matrix.shape[0])
+    if n < 2:
+        return []
+    k_actual = min(k, n - 1)
+    norms = np.linalg.norm(matrix[:n], axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    normed = (matrix[:n] / norms).astype(np.float32)
+
+    edges = []
+    seen = set()
+    chunk = 300
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        sim_chunk = normed[start:end] @ normed.T   # (chunk_size, n)
+        for ci, i in enumerate(range(start, end)):
+            row = sim_chunk[ci]
+            row[i] = -1.0                          # exclude self
+            top_idx = np.argpartition(row, -k_actual)[-k_actual:]
+            for j in top_idx.tolist():
+                if row[j] < min_sim:
+                    continue
+                a, b = min(i, j), max(i, j)
+                if (a, b) not in seen:
+                    seen.add((a, b))
+                    edges.append({"source": ids[a], "target": ids[b], "weight": float(row[j])})
+    return edges
+
+
 def _classify_math_topic(text: str) -> str:
     t = text.lower()
     if any(w in t for w in ['triangle', 'circle', 'angle', 'polygon', 'area', 'perimeter',
@@ -278,8 +308,20 @@ def precompute_universe():
             })
 
     app.config["UNIVERSE_NODES"] = nodes
+
+    edges = []
+    if math_docs is not None and math_records:
+        math_ids = [f"math_{rec['problem_id']}" for rec in math_records]
+        math_emb = app.config.get("MATH_BERT_EMBEDDINGS")
+        edges += _compute_knn_edges(math_emb if math_emb is not None else math_docs, math_ids, k=4, min_sim=0.60)
+    if lc_docs is not None and lc_records:
+        cs_ids = [f"cs_{rec['problem_id']}" for rec in lc_records]
+        cs_emb = app.config.get("LEETCODE_BERT_EMBEDDINGS")
+        edges += _compute_knn_edges(cs_emb if cs_emb is not None else lc_docs, cs_ids, k=4, min_sim=0.60)
+    app.config["UNIVERSE_EDGES"] = edges
+
     print(f"Universe precomputed: {len(nodes)} nodes "
-          f"({len(math_records)} math + {len(lc_records)} cs)")
+          f"({len(math_records)} math + {len(lc_records)} cs), {len(edges)} edges")
 
 
 precompute_universe()

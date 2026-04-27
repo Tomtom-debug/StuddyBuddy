@@ -7,7 +7,6 @@ import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
 import { LandingPage } from './LandingPage'
 import { TopNav } from './TopNav'
-import type { UniverseNode } from './Universe3D'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
 
 const Universe3D = lazy(() => import('./Universe3D'))
@@ -592,31 +591,6 @@ function App(): JSX.Element {
     }
   }
 
-  const buildUniverseQuery = (node: UniverseNode): string => {
-    const seeded = (node.query_seed ?? '').trim()
-    if (seeded !== '') return seeded
-    if (node.type === 'cs') return `${node.title ?? ''} ${node.preview}`.trim()
-    return node.preview.trim()
-  }
-
-  const handleUniverseFindSimilar = (node: UniverseNode): void => {
-    const nextSubject: Subject = node.type === 'cs' ? 'cs' : 'math'
-    const query = buildUniverseQuery(node)
-
-    setUniverseOpen(false)
-    if (query === '') return
-
-    setSubject(nextSubject)
-    setSearchTerm(query)
-    setHasSearched(true)
-
-    void (async () => {
-      const fetched = await runSearch(query, nextSubject)
-      if (useLlm && fetched.length > 0) {
-        void runSynthesis(fetched, query, nextSubject)
-      }
-    })()
-  }
 
   const handleInputChange = (value: string): void => {
     setSearchTerm(value)
@@ -685,7 +659,6 @@ function App(): JSX.Element {
         <Universe3D
           subject={subject}
           highlightIds={highlightIds}
-          onFindSimilar={handleUniverseFindSimilar}
           onSearch={(query, subj, retrieval) => {
             setSubject(subj)
             setSearchTerm(query)
