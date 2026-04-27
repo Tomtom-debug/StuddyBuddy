@@ -40,7 +40,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body, #root { height: 100%; margin: 0; }
+html, body, #root { min-height: 100%; margin: 0; }
 
 body {
   font-family: 'NTR', sans-serif;
@@ -133,8 +133,7 @@ input, textarea { font-family: inherit; }
 .app {
   display: grid;
   grid-template-columns: 1fr;
-  height: 100vh;
-  min-height: 680px;
+  min-height: 100vh;
   background: transparent;
   position: relative;
   z-index: 1;
@@ -192,7 +191,6 @@ input, textarea { font-family: inherit; }
 
 /* ——— Main column ——— */
 .main {
-  overflow-y: auto;
   padding: 82px 32px 60px;
   display: flex;
   flex-direction: column;
@@ -878,11 +876,11 @@ input, textarea { font-family: inherit; }
   backdrop-filter: blur(24px);
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  padding-top: 58px;
+  position: sticky;
+  top: 58px;
+  height: calc(100vh - 58px);
   min-height: 0;
   overflow: hidden;
-  position: relative;
   z-index: 1;
 }
 
@@ -1113,6 +1111,11 @@ input, textarea { font-family: inherit; }
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+@keyframes bounce-arrow {
+  0%, 100% { transform: translateY(0);   opacity: 0.45; }
+  50%       { transform: translateY(7px); opacity: 0.85; }
 }
 
 .suggest-chips {

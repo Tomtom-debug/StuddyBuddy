@@ -5,7 +5,6 @@ import { Eye, EyeOff, ArrowRight, Search, Sprout, X } from 'lucide-react'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
-import { MathBackground } from './MathBackground'
 import { LandingPage } from './LandingPage'
 import { TopNav } from './TopNav'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
@@ -458,7 +457,7 @@ function Concepts({ dims }: { dims: SvdDim[] }): JSX.Element {
 // ════════════════════════════════════════════════════════
 
 function App(): JSX.Element {
-  const [page, setPage] = useState<'landing' | 'app'>('landing')
+  const [activePage, setActivePage] = useState<'landing' | 'app'>('landing')
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [subject, setSubject] = useState<Subject>('math')
@@ -474,10 +473,21 @@ function App(): JSX.Element {
   const [isSproutOpen, setIsSproutOpen] = useState<boolean>(false)
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
-  const mainRef = useRef<HTMLElement>(null)
+  const searchRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
+  }, [])
+
+  useEffect(() => {
+    const el = searchRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setActivePage(entry.isIntersecting ? 'app' : 'landing'),
+      { threshold: 0.3 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
   }, [])
 
   const runSearch = async (value: string, subj: Subject, mode?: 'svd' | 'tfidf' | 'bert'): Promise<SearchResult[]> => {
@@ -618,22 +628,18 @@ function App(): JSX.Element {
     }
   }
 
-  const goHome = () => setPage('landing')
-  const goSearch = () => {
-    setPage('app')
-    mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-  }
+  const goHome = () => window.scrollTo({ top: 0, behavior: 'smooth' })
+  const goSearch = () => searchRef.current?.scrollIntoView({ behavior: 'smooth' })
 
   return (
     <>
-      <TopNav activePage={page} onHome={goHome} onSearch={goSearch} />
+      <TopNav activePage={activePage} onHome={goHome} onSearch={goSearch} />
 
-      {page === 'landing' ? (
-        <LandingPage onEnter={goSearch} />
-      ) : useLlm === null ? null : (
-    <div className={`app${useLlm ? ' llm-mode' : ''}`}>
-      <MathBackground />
-      <main className="main" ref={mainRef}>
+      <LandingPage onEnter={goSearch} />
+
+      <div ref={searchRef} className={`app${useLlm ? ' llm-mode' : ''}`}>
+      {useLlm !== null && (<>
+      <main className="main">
         <header className="main-head">
           <div className="main-greeting">
             Find your next <em>challenge</em>
@@ -818,8 +824,8 @@ function App(): JSX.Element {
         </button>
       )}
 
+      </>)}
     </div>
-      )}
     </>
   )
 }
