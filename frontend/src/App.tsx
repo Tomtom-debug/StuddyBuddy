@@ -1,13 +1,16 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import './App.css'
-import { Eye, EyeOff, ArrowRight, Search, Sprout, X } from 'lucide-react'
+import { Eye, EyeOff, ArrowRight, Search, Sprout, X, Lightbulb, Sparkles, CheckCircle, Building2 } from 'lucide-react'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
 import { LandingPage } from './LandingPage'
 import { TopNav } from './TopNav'
+import type { UniverseNode } from './Universe3D'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
+
+const Universe3D = lazy(() => import('./Universe3D'))
 
 // ════════════════════════════════════════════════════════
 // Similarity ring
@@ -92,7 +95,7 @@ function WhyMatched({ dims }: { dims: SvdDim[] | undefined }): JSX.Element | nul
   if (pos.length === 0 && neg.length === 0) return null
   return (
     <details className="why-match">
-      <summary>🔍 Why this matched in SVD</summary>
+      <summary><Search size={13} /> Why this matched in SVD</summary>
       <div className="why-box">
         {pos.length > 0 && (
           <div className="why-group">
@@ -199,14 +202,14 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
               className={`btn ghost ${explainMode === 'hint' ? 'active' : ''}`}
               onClick={() => handleExplain('hint')}
             >
-              <span className="emoji">💡</span>
+              <Lightbulb size={15} />
               {explainMode === 'hint' ? 'Hide hint' : 'Give me a hint'}
             </button>
             <button
               className={`btn ghost ${explainMode === 'walkthrough' ? 'active' : ''}`}
               onClick={() => handleExplain('walkthrough')}
             >
-              <span className="emoji">✨</span>
+              <Sparkles size={15} />
               {explainMode === 'walkthrough' ? 'Hide' : 'Full walkthrough'}
             </button>
           </>
@@ -225,7 +228,9 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
       {explainMode && (
         <div className={`hint-chain ${explainMode === 'walkthrough' ? 'walkthrough' : ''}`}>
           <div className="hint-head">
-            <span>{explainMode === 'hint' ? '💡 Hint' : '✨ Walkthrough'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {explainMode === 'hint' ? <><Lightbulb size={13} /> Hint</> : <><Sparkles size={13} /> Walkthrough</>}
+            </span>
             <button
               className="concepts-toggle"
               onClick={() => { setExplainMode(null); setExplainText('') }}
@@ -323,11 +328,11 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       {(Number.isFinite(acceptanceNum) || companies.length > 0) && (
         <div className="cs-meta">
           {Number.isFinite(acceptanceNum) && (
-            <span>✅ <b>{acceptanceText}</b> acceptance</span>
+            <span><CheckCircle size={14} /> <b>{acceptanceText}</b> acceptance</span>
           )}
           {companies.length > 0 && (
             <span>
-              🏢 <b>
+              <Building2 size={14} /> <b>
                 {companies.slice(0, 3).join(', ')}
                 {companies.length > 3 ? ` +${companies.length - 3}` : ''}
               </b>
@@ -360,14 +365,14 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
               className={`btn ghost ${explainMode === 'hint' ? 'active' : ''}`}
               onClick={() => handleExplain('hint')}
             >
-              <span className="emoji">💡</span>
+              <Lightbulb size={15} />
               {explainMode === 'hint' ? 'Hide hint' : 'Give me a hint'}
             </button>
             <button
               className={`btn ghost ${explainMode === 'walkthrough' ? 'active' : ''}`}
               onClick={() => handleExplain('walkthrough')}
             >
-              <span className="emoji">✨</span>
+              <Sparkles size={15} />
               {explainMode === 'walkthrough' ? 'Hide' : 'Walkthrough'}
             </button>
           </>
@@ -377,7 +382,9 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       {explainMode && (
         <div className={`hint-chain ${explainMode === 'walkthrough' ? 'walkthrough' : ''}`}>
           <div className="hint-head">
-            <span>{explainMode === 'hint' ? '💡 Hint' : '✨ Walkthrough'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {explainMode === 'hint' ? <><Lightbulb size={13} /> Hint</> : <><Sparkles size={13} /> Walkthrough</>}
+            </span>
             <button
               className="concepts-toggle"
               onClick={() => { setExplainMode(null); setExplainText('') }}
@@ -471,9 +478,15 @@ function App(): JSX.Element {
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
   const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf' | 'bert'>('bert')
   const [isSproutOpen, setIsSproutOpen] = useState<boolean>(false)
+  const [universeOpen, setUniverseOpen] = useState<boolean>(false)
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
   const searchRef = useRef<HTMLDivElement>(null)
+
+  const highlightIds = useMemo(() => {
+    if (results.length === 0) return new Set<string>()
+    return new Set(results.map(r => `${subject}_${r.problem_id}`))
+  }, [results, subject])
 
   useEffect(() => {
     fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
@@ -579,6 +592,32 @@ function App(): JSX.Element {
     }
   }
 
+  const buildUniverseQuery = (node: UniverseNode): string => {
+    const seeded = (node.query_seed ?? '').trim()
+    if (seeded !== '') return seeded
+    if (node.type === 'cs') return `${node.title ?? ''} ${node.preview}`.trim()
+    return node.preview.trim()
+  }
+
+  const handleUniverseFindSimilar = (node: UniverseNode): void => {
+    const nextSubject: Subject = node.type === 'cs' ? 'cs' : 'math'
+    const query = buildUniverseQuery(node)
+
+    setUniverseOpen(false)
+    if (query === '') return
+
+    setSubject(nextSubject)
+    setSearchTerm(query)
+    setHasSearched(true)
+
+    void (async () => {
+      const fetched = await runSearch(query, nextSubject)
+      if (useLlm && fetched.length > 0) {
+        void runSynthesis(fetched, query, nextSubject)
+      }
+    })()
+  }
+
   const handleInputChange = (value: string): void => {
     setSearchTerm(value)
     if (value.trim() === '') {
@@ -631,9 +670,51 @@ function App(): JSX.Element {
   const goHome = () => window.scrollTo({ top: 0, behavior: 'smooth' })
   const goSearch = () => searchRef.current?.scrollIntoView({ behavior: 'smooth' })
 
+  if (universeOpen) {
+    return (
+      <Suspense
+        fallback={
+          <div className="uni-overlay">
+            <div className="uni-loading">
+              <div className="uni-dots"><span /><span /><span /></div>
+              <p>Mapping the Problem Multiverse…</p>
+            </div>
+          </div>
+        }
+      >
+        <Universe3D
+          subject={subject}
+          highlightIds={highlightIds}
+          onFindSimilar={handleUniverseFindSimilar}
+          onSearch={(query, subj, retrieval) => {
+            setSubject(subj)
+            setSearchTerm(query)
+            setRetrievalMode(retrieval)
+            setHasSearched(true)
+            void (async () => {
+              const fetched = await runSearch(query, subj, retrieval)
+              if (useLlm && fetched.length > 0) void runSynthesis(fetched, query, subj)
+            })()
+          }}
+          onReset={() => {
+            setResults([])
+            setSearchTerm('')
+            setHasSearched(false)
+            setSynthesis(null)
+            setQueryTopDims([])
+          }}
+          onClose={() => {
+            setUniverseOpen(false)
+            setTimeout(() => searchRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
+          }}
+        />
+      </Suspense>
+    )
+  }
+
   return (
     <>
-      <TopNav activePage={activePage} onHome={goHome} onSearch={goSearch} />
+      <TopNav activePage={activePage} onHome={goHome} onSearch={goSearch} onMultiverse={() => setUniverseOpen(true)} />
 
       <LandingPage onEnter={goSearch} />
 
@@ -743,7 +824,7 @@ function App(): JSX.Element {
         {!loading && !error && results.length === 0 && hasSearched && (
           <div className="empty">
             <div className="empty-big">
-              {belowThreshold ? 'Nothing matched closely enough 🌱' : 'No problems found'}
+              {belowThreshold ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>Nothing matched closely enough <Sprout size={16} /></span> : 'No problems found'}
             </div>
             <div>
               {belowThreshold

@@ -1,10 +1,12 @@
 import json
 import os
 import pickle
+import re
 import sys
 import numpy as np
 from dotenv import load_dotenv
 from flask import Flask
+from sklearn.decomposition import PCA
 
 load_dotenv()
 
@@ -154,6 +156,134 @@ def load_leetcode_artifacts():
 load_bert_model()
 load_math_artifacts()
 load_leetcode_artifacts()
+
+
+# ── 3-D Universe helpers ──────────────────────────────────────────────────────
+
+def _compute_3d_positions(matrix, scale=150.0):
+    pca = PCA(n_components=3, random_state=42)
+    pos = pca.fit_transform(matrix).astype(np.float32)
+    for i in range(3):
+        std = pos[:, i].std()
+        pos[:, i] = np.clip(pos[:, i], -3 * std, 3 * std)
+        ax_max = np.abs(pos[:, i]).max()
+        if ax_max > 0:
+            pos[:, i] = pos[:, i] / ax_max * scale
+    return pos
+
+
+def _classify_math_topic(text: str) -> str:
+    t = text.lower()
+    if any(w in t for w in ['triangle', 'circle', 'angle', 'polygon', 'area', 'perimeter',
+                             'radius', 'tangent', 'inscribed', 'chord', 'arc', 'perpendicular',
+                             'parallelogram', 'rectangle', 'hexagon', 'diagonal']):
+        return 'geometry'
+    if any(w in t for w in ['prime', 'divisor', 'factor', 'gcd', 'lcm', 'modulo',
+                             'remainder', 'congruent', 'digit', 'divisible', 'coprime']):
+        return 'number_theory'
+    if any(w in t for w in ['polynomial', 'quadratic', 'cubic', 'equation', 'coefficient',
+                             'variable', 'inequality', 'logarithm', 'function', 'solve']):
+        return 'algebra'
+    if any(w in t for w in ['permutation', 'combination', 'probability', 'arrangement',
+                             'ways', 'choose', 'subset', 'committee', 'distinct', 'counting']):
+        return 'combinatorics'
+    if any(w in t for w in ['sum', 'series', 'sequence', 'arithmetic', 'geometric',
+                             'progression', 'converge', 'nth term', 'recursion']):
+        return 'series'
+    return 'other'
+
+
+def _classify_cs_topic(record: dict) -> str:
+    topics = ' '.join(t.lower() for t in (record.get('related_topics') or []))
+    if any(w in topics for w in ['array', 'hash table', 'sliding window', 'two pointer']):
+        return 'array'
+    if any(w in topics for w in ['tree', 'graph', 'bfs', 'dfs', 'topological',
+                                  'shortest path', 'union find']):
+        return 'graph'
+    if any(w in topics for w in ['dynamic programming', 'memoization',
+                                  'backtracking', 'greedy']):
+        return 'dp'
+    if any(w in topics for w in ['string', 'trie', 'palindrome']):
+        return 'string'
+    if any(w in topics for w in ['math', 'bit manipulation', 'number theory']):
+        return 'math'
+    if any(w in topics for w in ['binary search', 'sorting', 'heap', 'priority queue']):
+        return 'search'
+    if any(w in topics for w in ['linked list', 'stack', 'queue', 'deque', 'monotonic']):
+        return 'struct'
+    return 'other'
+
+
+def _single_line(text: str) -> str:
+    return (text or "").replace('\n', ' ').strip()
+
+
+def _plain_preview(text: str, limit: int = 120) -> str:
+    cleaned = _single_line(text)
+    cleaned = re.sub(r'\\text\{([^}]*)\}', r'\1', cleaned)
+    cleaned = re.sub(r'\\(?:begin|end)\{[^}]+\}', ' ', cleaned)
+    cleaned = re.sub(r'\\\[|\\\]|\\\(|\\\)|\$\$|\$', ' ', cleaned)
+    cleaned = cleaned.replace('\\\\', ' ')
+    cleaned = cleaned.replace('&', ' ').replace('{', ' ').replace('}', ' ')
+    cleaned = cleaned.replace('_', ' ').replace('^', ' ')
+    cleaned = re.sub(r'\\[a-zA-Z]+', ' ', cleaned)
+    cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+    return cleaned[:limit].rstrip()
+
+
+def precompute_universe():
+    nodes = []
+
+    math_docs    = app.config.get("MATH_DOCS_COMPRESSED")
+    math_records = app.config.get("MATH_RECORDS") or []
+    if math_docs is not None and math_records:
+        pos = _compute_3d_positions(math_docs)
+        pos[:, 0] -= 200          # shift left galaxy arm
+        for i, rec in enumerate(math_records):
+            p = pos[i]
+            nodes.append({
+                "id":         f"math_{rec['problem_id']}",
+                "type":       "math",
+                "problem_id": rec["problem_id"],
+                "x": float(p[0]), "y": float(p[1]), "z": float(p[2]),
+                "topic":   _classify_math_topic(rec.get("combined_text", "")),
+                "preview": _single_line((rec.get("problem_raw", "") or "")[:120]),
+                "preview_text": _plain_preview(rec.get("problem_raw", "") or "", limit=140),
+                "full_text": _single_line(rec.get("problem_raw", "") or ""),
+                "query_seed": _single_line((rec.get("problem_raw", "") or "")[:420]),
+            })
+
+    lc_docs    = app.config.get("LEETCODE_DOCS_COMPRESSED")
+    lc_records = app.config.get("LEETCODE_RECORDS") or []
+    if lc_docs is not None and lc_records:
+        pos = _compute_3d_positions(lc_docs)
+        pos[:, 0] += 200          # shift right galaxy arm
+        for i, rec in enumerate(lc_records):
+            p = pos[i]
+            nodes.append({
+                "id":         f"cs_{rec['problem_id']}",
+                "type":       "cs",
+                "problem_id": rec["problem_id"],
+                "title":      rec.get("title", f"Problem #{rec['problem_id']}"),
+                "x": float(p[0]), "y": float(p[1]), "z": float(p[2]),
+                "topic":      _classify_cs_topic(rec),
+                "difficulty": rec.get("difficulty", "Medium"),
+                "url":        rec.get("url", ""),
+                "preview":    _single_line((rec.get("description", "") or "")[:120]),
+                "preview_text": _plain_preview(rec.get("description", "") or "", limit=140),
+                "full_text": _single_line(rec.get("description", "") or ""),
+                "query_seed": _single_line((
+                    f"{rec.get('title', '')}. {rec.get('description', '')}" if rec.get("title") else rec.get("description", "")
+                )[:420]),
+            })
+
+    app.config["UNIVERSE_NODES"] = nodes
+    print(f"Universe precomputed: {len(nodes)} nodes "
+          f"({len(math_records)} math + {len(lc_records)} cs)")
+
+
+precompute_universe()
+
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0", port=5001)
