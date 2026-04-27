@@ -1,9 +1,12 @@
 import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import './App.css'
-import { Icon } from './icons'
+import { Eye, EyeOff, ArrowRight, Search, Sprout, X, Lightbulb, Sparkles, CheckCircle, Building2 } from 'lucide-react'
 import Chat from './Chat'
 import MathRenderer from './MathRenderer'
 import TextRenderer from './TextRenderer'
+import { LandingPage } from './LandingPage'
+import { TopNav } from './TopNav'
 import type { UniverseNode } from './Universe3D'
 import type { SearchResult, Subject, SvdDim, MathSearchResult, LeetcodeSearchResult } from './types'
 
@@ -92,7 +95,7 @@ function WhyMatched({ dims }: { dims: SvdDim[] | undefined }): JSX.Element | nul
   if (pos.length === 0 && neg.length === 0) return null
   return (
     <details className="why-match">
-      <summary>🔍 Why this matched in SVD</summary>
+      <summary><Search size={13} /> Why this matched in SVD</summary>
       <div className="why-box">
         {pos.length > 0 && (
           <div className="why-group">
@@ -185,12 +188,12 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
       <div className="card-foot">
         {!revealed ? (
           <button className="btn primary" onClick={() => setRevealed(true)}>
-            <Icon name="eye" size={15} />
+            <Eye size={15} />
             {practiceMode ? "I've tried — check answer" : 'Reveal answer'}
           </button>
         ) : (
           <button className="btn ghost" onClick={() => setRevealed(false)}>
-            <Icon name="x" size={15} /> Hide answer
+            <EyeOff size={15} /> Hide answer
           </button>
         )}
         {useLlm && (
@@ -199,14 +202,14 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
               className={`btn ghost ${explainMode === 'hint' ? 'active' : ''}`}
               onClick={() => handleExplain('hint')}
             >
-              <span className="emoji">💡</span>
+              <Lightbulb size={15} />
               {explainMode === 'hint' ? 'Hide hint' : 'Give me a hint'}
             </button>
             <button
               className={`btn ghost ${explainMode === 'walkthrough' ? 'active' : ''}`}
               onClick={() => handleExplain('walkthrough')}
             >
-              <span className="emoji">✨</span>
+              <Sparkles size={15} />
               {explainMode === 'walkthrough' ? 'Hide' : 'Full walkthrough'}
             </button>
           </>
@@ -225,7 +228,9 @@ function MathCard({ p, subject, practiceMode, useLlm }: MathCardProps): JSX.Elem
       {explainMode && (
         <div className={`hint-chain ${explainMode === 'walkthrough' ? 'walkthrough' : ''}`}>
           <div className="hint-head">
-            <span>{explainMode === 'hint' ? '💡 Hint' : '✨ Walkthrough'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {explainMode === 'hint' ? <><Lightbulb size={13} /> Hint</> : <><Sparkles size={13} /> Walkthrough</>}
+            </span>
             <button
               className="concepts-toggle"
               onClick={() => { setExplainMode(null); setExplainText('') }}
@@ -323,11 +328,11 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       {(Number.isFinite(acceptanceNum) || companies.length > 0) && (
         <div className="cs-meta">
           {Number.isFinite(acceptanceNum) && (
-            <span>✅ <b>{acceptanceText}</b> acceptance</span>
+            <span><CheckCircle size={14} /> <b>{acceptanceText}</b> acceptance</span>
           )}
           {companies.length > 0 && (
             <span>
-              🏢 <b>
+              <Building2 size={14} /> <b>
                 {companies.slice(0, 3).join(', ')}
                 {companies.length > 3 ? ` +${companies.length - 3}` : ''}
               </b>
@@ -351,7 +356,7 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       <div className="card-foot">
         {p.url && (
           <a className="btn primary" href={p.url} target="_blank" rel="noreferrer">
-            <Icon name="arrow" size={15} /> Open on LeetCode
+            <ArrowRight size={15} /> Open on LeetCode
           </a>
         )}
         {useLlm && (
@@ -360,14 +365,14 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
               className={`btn ghost ${explainMode === 'hint' ? 'active' : ''}`}
               onClick={() => handleExplain('hint')}
             >
-              <span className="emoji">💡</span>
+              <Lightbulb size={15} />
               {explainMode === 'hint' ? 'Hide hint' : 'Give me a hint'}
             </button>
             <button
               className={`btn ghost ${explainMode === 'walkthrough' ? 'active' : ''}`}
               onClick={() => handleExplain('walkthrough')}
             >
-              <span className="emoji">✨</span>
+              <Sparkles size={15} />
               {explainMode === 'walkthrough' ? 'Hide' : 'Walkthrough'}
             </button>
           </>
@@ -377,7 +382,9 @@ function CSCard({ p, subject, useLlm }: CSCardProps): JSX.Element {
       {explainMode && (
         <div className={`hint-chain ${explainMode === 'walkthrough' ? 'walkthrough' : ''}`}>
           <div className="hint-head">
-            <span>{explainMode === 'hint' ? '💡 Hint' : '✨ Walkthrough'}</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              {explainMode === 'hint' ? <><Lightbulb size={13} /> Hint</> : <><Sparkles size={13} /> Walkthrough</>}
+            </span>
             <button
               className="concepts-toggle"
               onClick={() => { setExplainMode(null); setExplainText('') }}
@@ -451,27 +458,13 @@ function Concepts({ dims }: { dims: SvdDim[] }): JSX.Element {
 // Tweaks
 // ════════════════════════════════════════════════════════
 
-const PALETTES = {
-  emerald: { accent: '#059669', accentInk: '#064e3b', accentSoft: '#d1f0e2', paper: '#f4f9f6', paper2: '#eaf3ee', line: '#d8e7df', line2: '#e7f0eb' },
-  apricot: { accent: '#f59e0b', accentInk: '#78350f', accentSoft: '#fef3c7', paper: '#fdf9f3', paper2: '#f7eedf', line: '#ead9bd', line2: '#f4e7cf' },
-  sky: { accent: '#0284c7', accentInk: '#0c4a6e', accentSoft: '#e0f2fe', paper: '#f4f9fd', paper2: '#e7f1fa', line: '#cfe2f1', line2: '#e0edf7' },
-  rose: { accent: '#e11d48', accentInk: '#881337', accentSoft: '#ffe4e6', paper: '#fdf6f7', paper2: '#fae9ec', line: '#ecd1d6', line2: '#f6e0e4' },
-} as const
-
-type AccentKey = keyof typeof PALETTES
-
-interface Tweaks {
-  accent: AccentKey
-  density: 'cozy' | 'compact'
-  mascot: boolean
-  practiceMode: boolean
-}
 
 // ════════════════════════════════════════════════════════
 // App
 // ════════════════════════════════════════════════════════
 
 function App(): JSX.Element {
+  const [activePage, setActivePage] = useState<'landing' | 'app'>('landing')
   const [useLlm, setUseLlm] = useState<boolean | null>(null)
   const [searchTerm, setSearchTerm] = useState<string>('')
   const [subject, setSubject] = useState<Subject>('math')
@@ -484,12 +477,11 @@ function App(): JSX.Element {
   const [queryTopDims, setQueryTopDims] = useState<SvdDim[]>([])
   const [synthesis, setSynthesis] = useState<{ irQuery: string; answerText: string; loading: boolean } | null>(null)
   const [retrievalMode, setRetrievalMode] = useState<'svd' | 'tfidf' | 'bert'>('bert')
-  const [tweaks, setTweaks] = useState<Tweaks>({ accent: 'emerald', density: 'cozy', mascot: true, practiceMode: false })
-  const [tweaksOpen, setTweaksOpen] = useState<boolean>(false)
+  const [isSproutOpen, setIsSproutOpen] = useState<boolean>(false)
   const [universeOpen, setUniverseOpen] = useState<boolean>(false)
-
   const latestRequestId = useRef<number>(0)
   const latestSynthesisId = useRef<number>(0)
+  const searchRef = useRef<HTMLDivElement>(null)
 
   const highlightIds = useMemo(() => {
     if (results.length === 0) return new Set<string>()
@@ -497,19 +489,18 @@ function App(): JSX.Element {
   }, [results, subject])
 
   useEffect(() => {
-    const p = PALETTES[tweaks.accent]
-    const root = document.documentElement
-    root.style.setProperty('--accent', p.accent)
-    root.style.setProperty('--accent-ink', p.accentInk)
-    root.style.setProperty('--accent-soft', p.accentSoft)
-    root.style.setProperty('--paper', p.paper)
-    root.style.setProperty('--paper-2', p.paper2)
-    root.style.setProperty('--line', p.line)
-    root.style.setProperty('--line-2', p.line2)
-  }, [tweaks.accent])
+    fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
+  }, [])
 
   useEffect(() => {
-    fetch('/api/config').then(r => r.json()).then(data => setUseLlm((data as { use_llm: boolean }).use_llm))
+    const el = searchRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => setActivePage(entry.isIntersecting ? 'app' : 'landing'),
+      { threshold: 0.3 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
   }, [])
 
   const runSearch = async (value: string, subj: Subject, mode?: 'svd' | 'tfidf' | 'bert'): Promise<SearchResult[]> => {
@@ -676,98 +667,118 @@ function App(): JSX.Element {
     }
   }
 
-  const updateTweak = <K extends keyof Tweaks>(key: K, val: Tweaks[K]): void => {
-    setTweaks(prev => ({ ...prev, [key]: val }))
+  const goHome = () => window.scrollTo({ top: 0, behavior: 'smooth' })
+  const goSearch = () => searchRef.current?.scrollIntoView({ behavior: 'smooth' })
+
+  if (universeOpen) {
+    return (
+      <Suspense
+        fallback={
+          <div className="uni-overlay">
+            <div className="uni-loading">
+              <div className="uni-dots"><span /><span /><span /></div>
+              <p>Mapping the Problem Multiverse…</p>
+            </div>
+          </div>
+        }
+      >
+        <Universe3D
+          subject={subject}
+          highlightIds={highlightIds}
+          onFindSimilar={handleUniverseFindSimilar}
+          onSearch={(query, subj, retrieval) => {
+            setSubject(subj)
+            setSearchTerm(query)
+            setRetrievalMode(retrieval)
+            setHasSearched(true)
+            void (async () => {
+              const fetched = await runSearch(query, subj, retrieval)
+              if (useLlm && fetched.length > 0) void runSynthesis(fetched, query, subj)
+            })()
+          }}
+          onReset={() => {
+            setResults([])
+            setSearchTerm('')
+            setHasSearched(false)
+            setSynthesis(null)
+            setQueryTopDims([])
+          }}
+          onClose={() => {
+            setUniverseOpen(false)
+            setTimeout(() => searchRef.current?.scrollIntoView({ behavior: 'smooth' }), 80)
+          }}
+        />
+      </Suspense>
+    )
   }
 
-  if (useLlm === null) return <></>
-
   return (
-    <div className={`app${tweaks.density === 'compact' ? ' compact' : ''}${useLlm ? ' llm-mode' : ''}`}>
-      <main className="main">
-        <div className="top-brand">
-          <div className="top-brand-mark">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 20c0-5 3-8 8-10-5-1-8 2-10 5" />
-              <path d="M12 20c0-5-3-8-8-10 5-1 8 2 10 5" />
-              <path d="M12 20V10" />
-            </svg>
-          </div>
-          <div className="top-brand-name">Studdy<em>Buddy</em></div>
-        </div>
+    <>
+      <TopNav activePage={activePage} onHome={goHome} onSearch={goSearch} onMultiverse={() => setUniverseOpen(true)} />
 
-        <header className="main-head" style={{ alignItems: 'flex-start' }}>
-          <div>
-            <div className="main-greeting">
-              Find your next <em>challenge</em>
-            </div>
-            <div className="main-sub">
-              {subject === 'math' ? 'AIME-style · 4,500+ problems' : 'LeetCode · 2,400+ problems'}
-            </div>
+      <LandingPage onEnter={goSearch} />
+
+      <div ref={searchRef} className={`app${useLlm ? ' llm-mode' : ''}`}>
+      {useLlm !== null && (<>
+      <main className="main">
+        <header className="main-head">
+          <div className="main-greeting">
+            Find your next <em>challenge</em>
+          </div>
+          <div className="main-sub">
+            {subject === 'math' ? 'AIME-style · 4,500+ problems' : 'LeetCode · 2,400+ problems'}
           </div>
         </header>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-          <button
-            className="chip universe-chip"
-            onClick={() => setUniverseOpen(true)}
-            title="Explore all problems in 3D space"
-          >
-            ◉ Problem Multiverse
-          </button>
-          <div className="subject-swap" role="tablist">
-            <button
-              className={`subject-btn ${subject === 'math' ? 'active' : ''}`}
-              onClick={() => handleSubjectChange('math')}
-            >
-              <span className="emoji">∑</span> Math
-            </button>
-            <button
-              className={`subject-btn ${subject === 'cs' ? 'active' : ''}`}
-              onClick={() => handleSubjectChange('cs')}
-            >
-              <span className="emoji">{'{}'}</span> CS
-            </button>
+        <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'center', gap: 20, flexWrap: 'wrap' }}>
+          <div className="toggle-group">
+            <span className="toggle-label">Subject</span>
+            <div className="subject-swap" role="tablist">
+              <button
+                className={`subject-btn ${subject === 'math' ? 'active' : ''}`}
+                onClick={() => handleSubjectChange('math')}
+              >
+                Math
+              </button>
+              <button
+                className={`subject-btn ${subject === 'cs' ? 'active' : ''}`}
+                onClick={() => handleSubjectChange('cs')}
+              >
+                CS
+              </button>
+            </div>
           </div>
-          <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
-            <button
-              className={`subject-btn ${retrievalMode === 'bert' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('bert')}
-              title="BERT — deep semantic search, understands meaning and synonyms"
-            >
-              BERT
-            </button>
-            <button
-              className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('svd')}
-              title="SVD (Latent Semantic Analysis) — topic-level semantic matching"
-            >
-              SVD
-            </button>
-            <button
-              className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
-              onClick={() => handleRetrievalModeChange('tfidf')}
-              title="TF-IDF — exact keyword matching"
-            >
-              TF-IDF
-            </button>
+          <div className="toggle-group">
+            <span className="toggle-label">Retrieval</span>
+            <div className="subject-swap" role="tablist" aria-label="Retrieval mode">
+              <button
+                className={`subject-btn ${retrievalMode === 'bert' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('bert')}
+                title="BERT — deep semantic search, understands meaning and synonyms"
+              >
+                BERT
+              </button>
+              <button
+                className={`subject-btn ${retrievalMode === 'svd' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('svd')}
+                title="SVD (Latent Semantic Analysis) — topic-level semantic matching"
+              >
+                SVD
+              </button>
+              <button
+                className={`subject-btn ${retrievalMode === 'tfidf' ? 'active' : ''}`}
+                onClick={() => handleRetrievalModeChange('tfidf')}
+                title="TF-IDF — exact keyword matching"
+              >
+                TF-IDF
+              </button>
+            </div>
           </div>
-          {useLlm && (
-            <button
-              className="chip"
-              style={tweaks.practiceMode
-                ? { background: 'var(--apricot)', borderColor: '#b45309', color: '#fff' }
-                : {}}
-              onClick={() => updateTweak('practiceMode', !tweaks.practiceMode)}
-            >
-              🎯 Practice mode {tweaks.practiceMode ? 'on' : 'off'}
-            </button>
-          )}
         </div>
 
         <div className="search-wrap">
           <div className="search-box">
-            <span className="icon"><Icon name="search" size={20} /></span>
+            <span className="icon"><Search size={20} /></span>
             <input
               id="search-input"
               value={searchTerm}
@@ -777,14 +788,6 @@ function App(): JSX.Element {
                 ? "Paste a math problem or describe what you're stuck on…"
                 : "Paste a CS problem or describe the pattern you want to learn…"}
             />
-            <button
-              className="search-submit"
-              onClick={handleSubmit}
-              disabled={!searchTerm.trim() || loading}
-              aria-label="Search"
-            >
-              <Icon name="arrow" size={16} />
-            </button>
           </div>
         </div>
 
@@ -821,7 +824,7 @@ function App(): JSX.Element {
         {!loading && !error && results.length === 0 && hasSearched && (
           <div className="empty">
             <div className="empty-big">
-              {belowThreshold ? 'Nothing matched closely enough 🌱' : 'No problems found'}
+              {belowThreshold ? <span style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>Nothing matched closely enough <Sprout size={16} /></span> : 'No problems found'}
             </div>
             <div>
               {belowThreshold
@@ -850,125 +853,61 @@ function App(): JSX.Element {
           </section>
         )}
 
-        {!loading && searchTerm.trim() === '' && (
-          <div className="empty">
-            <div className="empty-big">Start with a problem or concept ✦</div>
-            <div>Paste any practice problem, or describe a topic you want to explore. Press Enter or → to search.</div>
-          </div>
-        )}
 
-        {results.map(problem => {
-          if (subject === 'math' && 'problem_raw' in problem) {
-            return (
-              <MathCard
-                key={problem.problem_id}
-                p={problem}
-                subject={subject}
-                practiceMode={tweaks.practiceMode}
-                useLlm={useLlm}
-              />
-            )
-          }
-          if (subject === 'cs' && 'title' in problem) {
-            return (
-              <CSCard
-                key={problem.problem_id}
-                p={problem}
-                subject={subject}
-                useLlm={useLlm}
-              />
-            )
-          }
-          return null
-        })}
+        <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <AnimatePresence mode="popLayout">
+            {results.map((problem, idx) => {
+              const cardVariants = {
+                hidden: { opacity: 0, y: 24 },
+                visible: { opacity: 1, y: 0, transition: { duration: 0.32, delay: idx * 0.06, ease: 'easeOut' as const } },
+                exit:   { opacity: 0, y: -12, transition: { duration: 0.18 } },
+              }
+              if (subject === 'math' && 'problem_raw' in problem) {
+                return (
+                  <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit" style={{ width: '100%' }}>
+                    <MathCard
+                      p={problem}
+                      subject={subject}
+                      practiceMode={false}
+                      useLlm={useLlm}
+                    />
+                  </motion.div>
+                )
+              }
+              if (subject === 'cs' && 'title' in problem) {
+                return (
+                  <motion.div key={problem.problem_id} variants={cardVariants} initial="hidden" animate="visible" exit="exit" style={{ width: '100%' }}>
+                    <CSCard
+                      p={problem}
+                      subject={subject}
+                      useLlm={useLlm}
+                    />
+                  </motion.div>
+                )
+              }
+              return null
+            })}
+          </AnimatePresence>
+        </div>
       </main>
 
-      {useLlm && <Chat subject={subject} context={results} />}
-
-      {universeOpen && (
-        <Suspense
-          fallback={
-            <div className="uni-overlay">
-              <div className="uni-loading">
-                <div className="uni-dots"><span /><span /><span /></div>
-                <p>Loading universe…</p>
-              </div>
-            </div>
-          }
-        >
-          <Universe3D
-            subject={subject}
-            highlightIds={highlightIds}
-            onFindSimilar={handleUniverseFindSimilar}
-            onClose={() => setUniverseOpen(false)}
-          />
-        </Suspense>
+      {useLlm && isSproutOpen && (
+        <Chat subject={subject} context={results} onClose={() => setIsSproutOpen(false)} />
       )}
 
-      {tweaksOpen ? (
-        <div className="tweaks">
-          <div className="tweaks-title">
-            <span>🎨 Tweaks</span>
-            <button
-              className="icon-btn"
-              style={{ width: 28, height: 28 }}
-              onClick={() => setTweaksOpen(false)}
-            >
-              <Icon name="close" size={14} />
-            </button>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Accent color</div>
-            <div className="swatches">
-              {(
-                [['emerald', '#059669'], ['apricot', '#f59e0b'], ['sky', '#0284c7'], ['rose', '#e11d48']] as [AccentKey, string][]
-              ).map(([k, c]) => (
-                <button
-                  key={k}
-                  className={`swatch ${tweaks.accent === k ? 'active' : ''}`}
-                  style={{ background: c }}
-                  onClick={() => updateTweak('accent', k)}
-                  title={k}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Density</div>
-            <div className="segmented">
-              <button className={tweaks.density === 'cozy' ? 'on' : ''} onClick={() => updateTweak('density', 'cozy')}>Cozy</button>
-              <button className={tweaks.density === 'compact' ? 'on' : ''} onClick={() => updateTweak('density', 'compact')}>Compact</button>
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Mascot</div>
-            <div className="segmented">
-              <button className={tweaks.mascot ? 'on' : ''} onClick={() => updateTweak('mascot', true)}>On</button>
-              <button className={!tweaks.mascot ? 'on' : ''} onClick={() => updateTweak('mascot', false)}>Off</button>
-            </div>
-          </div>
-
-          <div className="tweak">
-            <div className="tweak-label">Practice mode default</div>
-            <div className="segmented">
-              <button className={tweaks.practiceMode ? 'on' : ''} onClick={() => updateTweak('practiceMode', true)}>On</button>
-              <button className={!tweaks.practiceMode ? 'on' : ''} onClick={() => updateTweak('practiceMode', false)}>Off</button>
-            </div>
-          </div>
-        </div>
-      ) : (
+      {useLlm && (
         <button
-          className="tweaks-closed"
-          onClick={() => setTweaksOpen(true)}
-          title="Tweaks"
+          className={`sprout-fab${isSproutOpen ? ' open' : ''}`}
+          onClick={() => setIsSproutOpen(o => !o)}
+          aria-label={isSproutOpen ? 'Close Sprout' : 'Open Sprout'}
         >
-          <Icon name="tune" size={20} />
+          {isSproutOpen ? <X size={20} /> : <Sprout size={20} />}
         </button>
       )}
+
+      </>)}
     </div>
+    </>
   )
 }
 
