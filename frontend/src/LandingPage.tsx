@@ -129,18 +129,61 @@ interface Props {
 }
 
 export function LandingPage({ onEnter }: Props): JSX.Element {
+  const landingRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const mouseRef = useRef({ x: -1000, y: -1000, active: false })
   const particlesRef = useRef<Particle[]>([])
   const startTimeRef = useRef<number | null>(null)
   const rafRef = useRef<number>(0)
+  const hasInitializedRef = useRef(false)
   const [ctaVisible, setCtaVisible] = useState(false)
-  const [exiting, setExiting] = useState(false)
 
-  const handleEnter = () => {
-    setExiting(true)
-    setTimeout(onEnter, 500)
-  }
+  // Re-run animations whenever the landing section scrolls back into view
+  useEffect(() => {
+    const el = landingRef.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry.isIntersecting) return
+        if (!hasInitializedRef.current) {
+          hasInitializedRef.current = true
+          return // first load — animations already started by the canvas effect
+        }
+        const W = window.innerWidth
+        const H = window.innerHeight
+        void document.fonts.ready.then(() => {
+          particlesRef.current = buildParticles(W, H)
+          startTimeRef.current = performance.now()
+          setCtaVisible(false)
+          setTimeout(() => setCtaVisible(true), 2600)
+        })
+      },
+      { threshold: 0.5 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+
+  // Scroll/swipe down while landing is in view → jump to search section
+  useEffect(() => {
+    let touchStartY = 0
+    const onWheel = (e: WheelEvent) => {
+      if (window.scrollY < window.innerHeight * 0.5 && e.deltaY > 30) onEnter()
+    }
+    const onTouchStart = (e: TouchEvent) => { touchStartY = e.touches[0].clientY }
+    const onTouchEnd = (e: TouchEvent) => {
+      if (window.scrollY < window.innerHeight * 0.5 && touchStartY - e.changedTouches[0].clientY > 50) onEnter()
+    }
+    window.addEventListener('wheel', onWheel, { passive: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+    return () => {
+      window.removeEventListener('wheel', onWheel)
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchend', onTouchEnd)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -240,14 +283,14 @@ export function LandingPage({ onEnter }: Props): JSX.Element {
 
   return (
     <div
+      ref={landingRef}
       style={{
-        position: 'fixed',
-        inset: 0,
+        position: 'relative',
+        width: '100%',
+        height: '100vh',
         background: '#05050a',
         overflow: 'hidden',
         fontFamily: "'NTR', sans-serif",
-        opacity: exiting ? 0 : 1,
-        transition: 'opacity 0.5s ease',
       }}
     >
       <MathBackground />
@@ -278,10 +321,30 @@ export function LandingPage({ onEnter }: Props): JSX.Element {
         <p style={{ fontSize: 17, color: '#8892b0', margin: 0, letterSpacing: '0.05em', textAlign: 'center' }}>
           4,500+ math &nbsp;·&nbsp; 2,400+ CS problems &nbsp;·&nbsp; semantic search
         </p>
-        <button onClick={handleEnter} style={ctaBtnStyle}>
+        <button onClick={onEnter} style={ctaBtnStyle}>
           Start Searching →
         </button>
       </div>
+
+      {ctaVisible && (
+        <div style={{
+          position: 'absolute',
+          bottom: 64,
+          left: 0, right: 0,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          gap: 4,
+          zIndex: 10,
+          animation: 'bounce-arrow 1.6s ease-in-out infinite',
+          cursor: 'pointer',
+        }} onClick={onEnter}>
+          <span style={{ fontSize: 11, letterSpacing: '0.12em', color: '#64748b', textTransform: 'uppercase' }}>scroll</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path d="M8 3v10M3 9l5 5 5-5" stroke="#64748b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
+      )}
 
       <TypewriterCredits />
     </div>
