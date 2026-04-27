@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
+import { X, Sparkles, Search } from 'lucide-react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import MathRenderer from './MathRenderer'
@@ -50,6 +51,8 @@ export interface Universe3DProps {
   subject: 'math' | 'cs'
   highlightIds: Set<string>
   onFindSimilar: (node: UniverseNode) => void
+  onSearch: (query: string, subject: 'math' | 'cs', retrieval: 'svd' | 'tfidf' | 'bert') => void
+  onReset: () => void
   onClose: () => void
 }
 
@@ -215,7 +218,7 @@ const S = 5
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function Universe3D({ subject, highlightIds, onFindSimilar, onClose }: Universe3DProps) {
+export default function Universe3D({ subject, highlightIds, onFindSimilar, onSearch, onReset, onClose }: Universe3DProps) {
   const mountRef  = useRef<HTMLDivElement>(null)
   const ctxRef    = useRef<ThreeCtx | null>(null)
   const nodesRef  = useRef<UniverseNode[]>([])
@@ -226,6 +229,23 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
   const [hovered,  setHovered]  = useState<UniverseNode | null>(null)
   const [selected, setSelected] = useState<UniverseNode | null>(null)
   const [cursorXY, setCursorXY] = useState({ x: 0, y: 0 })
+
+  const [uniQuery,     setUniQuery]     = useState('')
+  const [uniSubject,   setUniSubject]   = useState<'math' | 'cs'>(subject)
+  const [uniRetrieval, setUniRetrieval] = useState<'svd' | 'tfidf' | 'bert'>('bert')
+
+  const handleUniSearch = useCallback(() => {
+    const q = uniQuery.trim()
+    if (!q) return
+    onSearch(q, uniSubject, uniRetrieval)
+  }, [uniQuery, uniSubject, uniRetrieval, onSearch])
+
+  const handleReset = useCallback(() => {
+    onReset()
+    setUniQuery('')
+    const ctx = ctxRef.current
+    if (ctx) flyToPos(ctx, 0, 400, 3500, 0, 0, 0, 1400)
+  }, [onReset])
 
   useEffect(() => { nodesRef.current = nodes }, [nodes])
 
@@ -377,6 +397,7 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
     const opAttr  = ctx.geo.getAttribute('aOpacity') as THREE.BufferAttribute
     const glAttr  = ctx.geo.getAttribute('aGlow')    as THREE.BufferAttribute
     const colAttr = ctx.geo.getAttribute('aColor')   as THREE.BufferAttribute
+    const szAttr  = ctx.geo.getAttribute('aSize')    as THREE.BufferAttribute
 
     const hasSearch  = highlightIds.size > 0
     const selId      = selected?.id
@@ -389,15 +410,17 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
       let r = base.r, g = base.g, b = base.b
       let opacity = 1.0
       let glow    = 1.0
+      let size    = nodeBaseSize(n)
 
       if (hasSearch) {
         if (isHit) {
-          // Brighten hit nodes
           r = Math.min(r + 0.18, 1); g = Math.min(g + 0.18, 1); b = Math.min(b + 0.18, 1)
-          glow    = 1.9
+          glow = 1.9
+          size = nodeBaseSize(n) * 2.2   // make hit nodes pop
         } else {
           opacity = 0.10
           glow    = 0.15
+          size    = nodeBaseSize(n) * 0.7
         }
       }
 
@@ -405,7 +428,8 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
         if (isSel) {
           r = Math.min(r + 0.35, 1); g = Math.min(g + 0.35, 1); b = Math.min(b + 0.35, 1)
           opacity = 1.0
-          glow    = 2.8   // glow > 1 triggers the selection ring in FRAG shader
+          glow    = 2.8
+          size    = nodeBaseSize(n) * 2.5
         } else if (!isHit) {
           opacity *= 0.18
           glow    *= 0.18
@@ -415,11 +439,13 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
       opAttr.setX(i, opacity)
       glAttr.setX(i, glow)
       colAttr.setXYZ(i, r, g, b)
+      szAttr.setX(i, size)
     })
 
     opAttr.needsUpdate  = true
     glAttr.needsUpdate  = true
     colAttr.needsUpdate = true
+    szAttr.needsUpdate  = true
   }, [highlightIds, selected, nodes])
 
   // ── Camera flyto on new search results ────────────────────────────────────
@@ -431,7 +457,13 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
     const cx = matched.reduce((s, n) => s + n.x * S, 0) / matched.length
     const cy = matched.reduce((s, n) => s + n.y * S, 0) / matched.length
     const cz = matched.reduce((s, n) => s + n.z * S, 0) / matched.length
-    flyToPos(ctx, cx, cy + 60, cz + 800, cx, cy, cz, 1400)
+    // Compute spread so that fewer/tighter results get a closer camera
+    const spread = matched.reduce((mx, n) => {
+      const dx = n.x * S - cx, dy = n.y * S - cy, dz = n.z * S - cz
+      return Math.max(mx, Math.sqrt(dx*dx + dy*dy + dz*dz))
+    }, 0)
+    const dist = Math.max(60, Math.min(spread * 1.0 + 50, 350))
+    flyToPos(ctx, cx, cy + dist * 0.08, cz + dist, cx, cy, cz, 1400)
   }, [highlightIds, nodes])
 
   // ── FlyTo ─────────────────────────────────────────────────────────────────
@@ -512,9 +544,46 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
           <span className="uni-brand">◉ Problem Multiverse</span>
           <span className="uni-stats">{mathCount} math · {csCount} cs · {nodes.length} total</span>
         </div>
+
+        <div className="uni-topbar-search">
+          <div className="uni-search-subject">
+            <button
+              className={`uni-subj-btn${uniSubject === 'math' ? ' active' : ''}`}
+              onClick={() => setUniSubject('math')}
+            >Math</button>
+            <button
+              className={`uni-subj-btn${uniSubject === 'cs' ? ' active' : ''}`}
+              onClick={() => setUniSubject('cs')}
+            >CS</button>
+          </div>
+          <input
+            className="uni-search-input"
+            value={uniQuery}
+            onChange={e => setUniQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleUniSearch() }}
+            placeholder="Search problems…"
+          />
+          <select
+            className="uni-retrieval-select"
+            value={uniRetrieval}
+            onChange={e => setUniRetrieval(e.target.value as 'svd' | 'tfidf' | 'bert')}
+            title="Retrieval method"
+          >
+            <option value="bert">BERT</option>
+            <option value="svd">SVD</option>
+            <option value="tfidf">TF-IDF</option>
+          </select>
+          <button className="uni-search-btn" onClick={handleUniSearch}>
+            <Search size={14} />
+          </button>
+          <button className="uni-reset-btn" onClick={handleReset} title="Reset search and return to overview">
+            <X size={13} /> Reset
+          </button>
+        </div>
+
         <div className="uni-topbar-right">
-          <span className="uni-hint">Drag to orbit · Scroll to zoom · Click a star</span>
-          <button className="uni-close-btn" onClick={onClose}>✕ Exit</button>
+          <span className="uni-hint">Drag · Scroll · Click</span>
+          <button className="uni-close-btn" onClick={onClose}><X size={14} /> Exit</button>
         </div>
       </div>
 
@@ -547,7 +616,7 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
       {/* ── Search badge ──────────────────────────────────────────────────── */}
       {highlightIds.size > 0 && (
         <div className="uni-search-badge">
-          ✦ {highlightIds.size} {subject === 'math' ? 'math' : 'CS'} problems matched
+          <Sparkles size={13} /> {highlightIds.size} {subject === 'math' ? 'math' : 'CS'} problems matched
         </div>
       )}
 
@@ -583,7 +652,7 @@ export default function Universe3D({ subject, highlightIds, onFindSimilar, onClo
       {/* ── Selected node panel ───────────────────────────────────────────── */}
       {selected && (
         <div className="uni-panel">
-          <button className="uni-panel-close" onClick={() => setSelected(null)}>✕</button>
+          <button className="uni-panel-close" onClick={() => setSelected(null)}><X size={14} /></button>
           <div className="uni-panel-type" style={{ color: COLORS[selected.topic] }}>
             {selected.type === 'math' ? '∑ Math' : '{ } CS'} · {selected.topic.replace('_', ' ')}
           </div>
